@@ -135,13 +135,22 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const selectedDay = days[selectedIndex];
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
+  const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
+  const [editTaskInput, setEditTaskInput] = useState<string>("");
   const addInputRef = useRef<HTMLInputElement | null>(null);
+  const editInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
       addInputRef.current.focus();
     }
   }, [activeAddIndex]);
+
+  useEffect(() => {
+    if (editingTask !== null && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  }, [editingTask]);
 
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
@@ -152,6 +161,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       left: targetLeft,
       behavior: smooth ? "smooth" : "auto",
     });
+  };
+
+  const goToday = () => {
+    setSelectedIndex(CENTER_INDEX);
   };
 
   const addTaskToList = (index: number, title: string) => {
@@ -165,6 +178,35 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     );
     setNewTaskInput("");
     setActiveAddIndex(null);
+  };
+
+  const startEditingTask = (dayIndex: number, taskIndex: number, title: string) => {
+    setEditingTask({ dayIndex, taskIndex });
+    setEditTaskInput(title);
+  };
+
+  const saveEditedTask = () => {
+    if (!editingTask || !editTaskInput.trim()) {
+      setEditingTask(null);
+      setEditTaskInput("");
+      return;
+    }
+    setDays((currentDays) =>
+      currentDays.map((day, dayIndex) =>
+        dayIndex === editingTask.dayIndex
+          ? {
+              ...day,
+              tasks: day.tasks.map((task, taskIndex) =>
+                taskIndex === editingTask.taskIndex
+                  ? { ...task, title: editTaskInput.trim() }
+                  : task
+              ),
+            }
+          : day
+      )
+    );
+    setEditingTask(null);
+    setEditTaskInput("");
   };
 
   useEffect(() => {
@@ -217,7 +259,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-1 py-2 shadow-sm shadow-slate-200/50">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm shadow-slate-200/50">
         <div className="flex flex-1 min-w-0 items-center gap-3">
           <label htmlFor="kanban-search" className="sr-only">Search</label>
           <input
@@ -226,6 +268,13 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             placeholder="Search..."
             className="w-[20rem] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
           />
+          <button
+            type="button"
+            onClick={goToday}
+            className="rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+          >
+            Go to Today
+          </button>
         </div>
       </header>
 
@@ -319,16 +368,51 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     </button>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  {day.tasks.map((task, taskIndex) => (
-                    <div
-                      key={`${task.title}-${taskIndex}`}
-                      className="rounded-xl border border-slate-200 p-4 shadow-sm"
-                      style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
-                    >
-                      <p className={`${applyColor ? 'text-slate-900' : 'text-slate-900'} text-sm font-semibold`}>{task.title}</p>
-                    </div>
-                  ))}
+                <div className="space-y-1">
+                  {day.tasks.map((task, taskIndex) => {
+                    const isEditing =
+                      editingTask?.dayIndex === index && editingTask?.taskIndex === taskIndex;
+                    return (
+                      <div
+                        key={`${task.title}-${taskIndex}`}
+                        className="rounded-xl border border-slate-200 px-3 py-3 shadow-sm"
+                        style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
+                      >
+                        {isEditing ? (
+                          <input
+                            ref={editInputRef}
+                            type="text"
+                            value={editTaskInput}
+                            onChange={(e) => setEditTaskInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                saveEditedTask();
+                              }
+                              if (e.key === 'Escape') {
+                                setEditingTask(null);
+                                setEditTaskInput("");
+                              }
+                            }}
+                            onBlur={saveEditedTask}
+                            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditingTask(index, taskIndex, task.title);
+                            }}
+                            className="w-full text-left"
+                          >
+                            <p className={`${applyColor ? 'text-slate-900' : 'text-slate-900'} text-sm font-semibold leading-snug`}>{task.title}</p>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {activeAddIndex === index ? (
@@ -339,6 +423,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                       value={newTaskInput}
                       onChange={(e) => setNewTaskInput(e.target.value)}
                       onKeyDown={(e) => {
+                        e.stopPropagation();
                         if (e.key === 'Enter') {
                           e.preventDefault();
                           addTaskToList(index, newTaskInput);
