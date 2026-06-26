@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type Task = {
   title: string;
-  status: string;
+  status?: string;
 };
 
 type DayColumn = {
@@ -23,6 +23,15 @@ let colors: Record<string, string> = {
   "Saturday": "#BE9000",
 };
 
+let daysOfWeek: Record<string, string> = {
+  "Sunday": "Sun",
+  "Monday": "Mon",
+  "Tuesday": "Tues",
+  "Wednesday": "Weds",
+  "Thursday": "Thurs", 
+  "Friday": "Fri"
+}
+
 function hexToRgba(hex: string, alpha = 1) {
   const h = hex.replace('#', '');
   if (h.length === 3) {
@@ -40,8 +49,8 @@ function hexToRgba(hex: string, alpha = 1) {
   return hex;
 }
 
-const DAY_COUNT = 7;
-const CENTER_INDEX = 0;
+const DAY_COUNT = 31;
+const CENTER_INDEX = Math.floor(DAY_COUNT / 2);
 
 function addDays(date: Date, amount: number) {
   const copy = new Date(date);
@@ -114,7 +123,7 @@ function buildDayColumns(today: Date): DayColumn[] {
 }
 
 export default function Kanban({ dayColors }: { dayColors?: Record<string, string> } = {}) {
-  const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
+    const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dayRefs = useRef<Array<HTMLDivElement | null>>([]);
   const ignoreScrollRef = useRef(false);
@@ -122,20 +131,48 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [dragging, setDragging] = useState(false);
 
   const today = useMemo(() => new Date(), []);
-  const days = useMemo(() => buildDayColumns(today), [today]);
+  const [days, setDays] = useState<DayColumn[]>(() => buildDayColumns(today));
   const selectedDay = days[selectedIndex];
+  const [newTaskInput, setNewTaskInput] = useState<string>("");
+  const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
+  const addInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (activeAddIndex !== null && addInputRef.current) {
+      addInputRef.current.focus();
+    }
+  }, [activeAddIndex]);
+
+  const scrollDayToStart = (index: number, smooth = true) => {
+    if (!scrollRef.current || !dayRefs.current[index]) return;
+    const target = dayRefs.current[index];
+    const leftMargin = 24;
+    const targetLeft = Math.max(0, target.offsetLeft - leftMargin);
+    scrollRef.current.scrollTo({
+      left: targetLeft,
+      behavior: smooth ? "smooth" : "auto",
+    });
+  };
+
+  const addTaskToList = (index: number, title: string) => {
+    if (!title.trim()) return;
+    setDays((currentDays) =>
+      currentDays.map((day, dayIndex) =>
+        dayIndex === index
+          ? { ...day, tasks: [...day.tasks, { title: title.trim() }] }
+          : day
+      )
+    );
+    setNewTaskInput("");
+    setActiveAddIndex(null);
+  };
 
   useEffect(() => {
     if (ignoreScrollRef.current) {
       ignoreScrollRef.current = false;
       return;
     }
-    if (!dayRefs.current[selectedIndex] || !scrollRef.current) return;
-    dayRefs.current[selectedIndex]?.scrollIntoView({
-      behavior: "smooth",
-      inline: "start",
-      block: "nearest",
-    });
+    scrollDayToStart(selectedIndex);
   }, [selectedIndex]);
 
   // Drag-to-scroll handlers
@@ -169,19 +206,28 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     } catch {}
   };
 
-  // Ensure the horizontal scroll is at the very left on initial mount (prevents slight right offset)
+  // Ensure today is positioned at the left edge on initial mount
   useEffect(() => {
-    if (!scrollRef.current) return;
-    const el = scrollRef.current;
-    requestAnimationFrame(() => el.scrollTo({ left: 0, behavior: "auto" }));
+    if (!dayRefs.current[CENTER_INDEX] || !scrollRef.current) return;
+    requestAnimationFrame(() => {
+      scrollDayToStart(CENTER_INDEX, false);
+    });
   }, []);
 
-  const goPrev = () => setSelectedIndex((current) => Math.max(0, current - 1));
-  const goNext = () => setSelectedIndex((current) => Math.min(days.length - 1, current + 1));
-  const goToday = () => setSelectedIndex(CENTER_INDEX);
 
   return (
     <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-1 py-2 shadow-sm shadow-slate-200/50">
+        <div className="flex flex-1 min-w-0 items-center gap-3">
+          <label htmlFor="kanban-search" className="sr-only">Search</label>
+          <input
+            id="kanban-search"
+            type="search"
+            placeholder="Search..."
+            className="w-[20rem] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+          />
+        </div>
+      </header>
 
       <section className="overflow-hidden border border-slate-200 bg-slate-50 shadow-sm shadow-slate-200/50">
         <div
@@ -196,8 +242,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
         >
           {days.map((day, index) => {
             const isSelected = index === selectedIndex;
-            const weekdayShort = formatWeekdayShort(day.date);
             const weekdayLong = formatWeekdayLong(day.date);
+            const weekdayShort = daysOfWeek[weekdayLong] ?? formatWeekdayShort(day.date);
             // lookup order: prop (long), prop (short), local colors (long), local colors (short)
             const dayColor =
               dayColors?.[weekdayLong] ?? dayColors?.[weekdayShort] ?? colors[weekdayLong] ?? colors[weekdayShort];
@@ -206,10 +252,24 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             const taskCardBg = dayColor ? hexToRgba(dayColor, 0.08) : undefined;
             const buttonTextColor = applyColor ? "#000" : undefined;
             const buttonBgColor = dayColor ? hexToRgba(dayColor, 0.9) : undefined;
+            const isToday = index === CENTER_INDEX;
+            const todayDateClasses = isToday
+              ? "inline-flex flex-col rounded-2xl border-2 px-3 py-2 shadow-sm"
+              : "";
+            const todayDateStyle = isToday && applyColor
+              ? {
+                  backgroundColor: hexToRgba(dayColor, 0.22),
+                  borderColor: hexToRgba(dayColor, 0.85),
+                  color: "#111",
+                  boxShadow: `0 0 0 1px ${hexToRgba(dayColor, 0.12)}`,
+                }
+              : undefined;
             return (
               <div
                 key={day.label}
-                ref={(el) => (dayRefs.current[index] = el)}
+                ref={(el) => {
+                  dayRefs.current[index] = el;
+                }}
                 onClick={() => {
                   if (dragRef.current.moved) {
                     // click came after a drag; ignore selection
@@ -227,47 +287,76 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 }}
                 role="button"
                 tabIndex={0}
-                className={`min-w-[20rem] shrink-0 rounded-xl border p-6 transition duration-300 cursor-pointer  ${
+                className={`min-w-[20rem] shrink-0 rounded-xl border p-3 transition duration-300 cursor-pointer  ${
                   isSelected
                     ? "border-slate-900 bg-white shadow-[0_12px_60px_-18px_rgba(15,23,42,0.35)]"
                     : "border-transparent bg-slate-100/90"
                 } ${index === 0 ? "mr-2" : "mx-2"} ${index === days.length - 1 ? "ml-2" : ""}`}
                 style={applyColor ? { borderColor: dayColor } : undefined}
               >
-                <div className="mb-5 flex items-center justify-between gap-3">
+                <div className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
-                      {weekdayShort}
-                    </p>
-                    <p className="mt-2 text-2xl font-semibold text-slate-900">
-                      {formatMonthDay(day.date)}
-                    </p>
+                    <div className={todayDateClasses} style={todayDateStyle}>
+                      <p className="text-[0.55rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                        {weekdayShort}
+                      </p>
+                      <p className="mt-1 text-lg font-semibold leading-tight text-slate-900">
+                        {formatMonthDay(day.date)}
+                      </p>
+                    </div>
                   </div>
-                  {index === CENTER_INDEX ? (
-                    <span
-                      className={`rounded-lg px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${
-                        applyColor ? "" : "bg-white text-slate-600"
-                      }`}
-                      style={applyColor ? { backgroundColor: dayColor, color: "#000" } : undefined}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveAddIndex(index);
+                        setNewTaskInput("");
+                      }}
+                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-900 transition hover:bg-slate-100"
                     >
-                      Today
-                    </span>
-                  ) : null}
+                      + Add task
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
-                  {day.tasks.map((task) => (
+                  {day.tasks.map((task, taskIndex) => (
                     <div
-                      key={task.title}
+                      key={`${task.title}-${taskIndex}`}
                       className="rounded-xl border border-slate-200 p-4 shadow-sm"
                       style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
                     >
                       <p className={`${applyColor ? 'text-slate-900' : 'text-slate-900'} text-sm font-semibold`}>{task.title}</p>
-                      
                     </div>
                   ))}
                 </div>
 
-                
+                {activeAddIndex === index ? (
+                  <div className="mt-2 space-y-2">
+                    <input
+                      ref={addInputRef}
+                      type="text"
+                      value={newTaskInput}
+                      onChange={(e) => setNewTaskInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTaskToList(index, newTaskInput);
+                        }
+                        if (e.key === 'Escape') {
+                          setNewTaskInput("");
+                          setActiveAddIndex(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        setNewTaskInput("");
+                        setActiveAddIndex(null);
+                      }}
+                      placeholder="New task..."
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                    />
+                  </div>
+                ) : null}
               </div>
             );
           })}
