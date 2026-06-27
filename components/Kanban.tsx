@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type Task = {
   title: string;
   status?: string;
+  completed?: boolean;
 };
 
 type DayColumn = {
@@ -13,14 +14,24 @@ type DayColumn = {
   tasks: Task[];
 };
 
-let colors: Record<string, string> = {
-  "Sunday": "#ffff6e",
-  "Monday": "#D3D3D3",
-  "Tuesday": "#FFB3B3",
-  "Wednesday": "#B3D9FF",
-  "Thursday": "#B3E6CC",
-  "Friday": "#FBD702",
-  "Saturday": "#BE9000",
+const lightColors: Record<string, string> = {
+  "Sunday": "#f5d000",
+  "Monday": "#9ca3af",
+  "Tuesday": "#ff8a8a",
+  "Wednesday": "#7fa7ff",
+  "Thursday": "#72c38f",
+  "Friday": "#e0b600",
+  "Saturday": "#a56f00",
+};
+
+const darkColors: Record<string, string> = {
+  "Sunday": "#cca800",
+  "Monday": "#6b7280",
+  "Tuesday": "#f86767",
+  "Wednesday": "#5f8cff",
+  "Thursday": "#4fa270",
+  "Friday": "#d19c00",
+  "Saturday": "#8a5a00",
 };
 
 let daysOfWeek: Record<string, string> = {
@@ -80,34 +91,34 @@ function formatWeekdayLong(date: Date) {
 function buildDayColumns(today: Date): DayColumn[] {
   const samples: Task[][] = [
     [
-      { title: "Capture ideas for the week", status: "Planned" },
-      { title: "Check email summaries", status: "In progress" },
+      { title: "Capture ideas for the week", status: "Planned", completed: false },
+      { title: "Check email summaries", status: "In progress", completed: false },
     ],
     [
-      { title: "Review today's calendar", status: "Done" },
-      { title: "Draft meeting notes", status: "Planned" },
-      { title: "Add priorities to workboard", status: "In progress" },
+      { title: "Review today's calendar", status: "Done", completed: true },
+      { title: "Draft meeting notes", status: "Planned", completed: false },
+      { title: "Add priorities to workboard", status: "In progress", completed: false },
     ],
     [
-      { title: "Plan sprint goals", status: "Planned" },
-      { title: "Update task statuses", status: "In progress" },
+      { title: "Plan sprint goals", status: "Planned", completed: false },
+      { title: "Update task statuses", status: "In progress", completed: false },
     ],
     [
-      { title: "Focus on current day", status: "In progress" },
-      { title: "Complete two quick wins", status: "Planned" },
-      { title: "Sync with the team", status: "Planned" },
+      { title: "Focus on current day", status: "In progress", completed: false },
+      { title: "Complete two quick wins", status: "Planned", completed: false },
+      { title: "Sync with the team", status: "Planned", completed: false },
     ],
     [
-      { title: "Prepare tomorrow's agenda", status: "Planned" },
-      { title: "Review blockers", status: "Planned" },
+      { title: "Prepare tomorrow's agenda", status: "Planned", completed: false },
+      { title: "Review blockers", status: "Planned", completed: false },
     ],
     [
-      { title: "Reflect on the week", status: "Planned" },
-      { title: "Archive done items", status: "Done" },
+      { title: "Reflect on the week", status: "Planned", completed: false },
+      { title: "Archive done items", status: "Done", completed: true },
     ],
     [
-      { title: "Clear small tasks", status: "Planned" },
-      { title: "Organize backlog", status: "Planned" },
+      { title: "Clear small tasks", status: "Planned", completed: false },
+      { title: "Organize backlog", status: "Planned", completed: false },
     ],
   ];
 
@@ -132,6 +143,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
 
   const today = useMemo(() => new Date(), []);
   const [days, setDays] = useState<DayColumn[]>(() => buildDayColumns(today));
+  const [darkMode, setDarkMode] = useState(false);
+  const themeColors = darkMode ? darkColors : lightColors;
   const selectedDay = days[selectedIndex];
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
@@ -140,6 +153,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -152,6 +166,25 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       editInputRef.current.focus();
     }
   }, [editingTask]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        contextMenuRef.current &&
+        !contextMenuRef.current.contains(event.target as Node)
+      ) {
+        setContextMenu(null);
+      }
+    };
+
+    if (contextMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [contextMenu]);
 
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
@@ -173,7 +206,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     setDays((currentDays) =>
       currentDays.map((day, dayIndex) =>
         dayIndex === index
-          ? { ...day, tasks: [...day.tasks, { title: title.trim() }] }
+          ? { ...day, tasks: [...day.tasks, { title: title.trim(), completed: false }] }
           : day
       )
     );
@@ -228,6 +261,23 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     }
   };
 
+  const toggleTaskCompleted = (dayIndex: number, taskIndex: number) => {
+    setDays((currentDays) =>
+      currentDays.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              tasks: day.tasks.map((task, currentTaskIndex) =>
+                currentTaskIndex === taskIndex
+                  ? { ...task, completed: !task.completed }
+                  : task
+              ),
+            }
+          : day
+      )
+    );
+  };
+
   useEffect(() => {
     if (ignoreScrollRef.current) {
       ignoreScrollRef.current = false;
@@ -278,26 +328,33 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm shadow-slate-200/50">
+      <header className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-3 py-2 shadow-sm transition ${darkMode ? "border-[#372a5d] bg-[#171021] shadow-[#241b35]/30" : "border-slate-200 bg-white shadow-slate-200/50"}`}>
         <div className="flex flex-1 min-w-0 items-center gap-3">
           <label htmlFor="kanban-search" className="sr-only">Search</label>
           <input
             id="kanban-search"
             type="search"
             placeholder="Search..."
-            className="w-[20rem] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+            className={`w-[20rem] rounded-2xl border px-4 py-2 text-sm outline-none transition focus:border-slate-900 focus:ring-2 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 focus:border-[#7d6ba6] focus:ring-[#372a5d]" : "border-slate-200 bg-slate-50 text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
           />
           <button
             type="button"
             onClick={goToday}
-            className="rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 hover:bg-[#332c5a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
           >
             Go to Today
+          </button>
+          <button
+            type="button"
+            onClick={() => setDarkMode((prev) => !prev)}
+            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+          >
+            {darkMode ? "Switch to Light" : "Switch to Dark"}
           </button>
         </div>
       </header>
 
-      <section className="overflow-hidden border border-slate-200 bg-slate-50 shadow-sm shadow-slate-200/50">
+      <section className={`overflow-hidden border shadow-sm ${darkMode ? "border-[#372a5d] bg-[#181224] shadow-[#241b35]/30" : "border-slate-200 bg-slate-50 shadow-slate-200/50"}`}>
         <div
           ref={scrollRef}
           onPointerDown={handlePointerDown}
@@ -314,10 +371,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             const weekdayShort = daysOfWeek[weekdayLong] ?? formatWeekdayShort(day.date);
             // lookup order: prop (long), prop (short), local colors (long), local colors (short)
             const dayColor =
-              dayColors?.[weekdayLong] ?? dayColors?.[weekdayShort] ?? colors[weekdayLong] ?? colors[weekdayShort];
+              dayColors?.[weekdayLong] ?? dayColors?.[weekdayShort] ?? themeColors[weekdayLong] ?? themeColors[weekdayShort];
             const isLast = index === days.length - 1;
             const applyColor = Boolean(dayColor);
-            const taskCardBg = dayColor ? hexToRgba(dayColor, 0.08) : undefined;
+            const taskCardBg = dayColor ? hexToRgba(dayColor, 0.14) : undefined;
             const buttonTextColor = applyColor ? "#000" : undefined;
             const buttonBgColor = dayColor ? hexToRgba(dayColor, 0.9) : undefined;
             const isToday = index === CENTER_INDEX;
@@ -326,9 +383,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
               : "";
             const todayDateStyle = isToday && applyColor
               ? {
-                  backgroundColor: hexToRgba(dayColor, 0.22),
-                  borderColor: hexToRgba(dayColor, 0.85),
-                  color: "#111",
+                  backgroundColor: hexToRgba(dayColor, darkMode ? 0.18 : 0.22),
+                  borderColor: hexToRgba(dayColor, darkMode ? 0.9 : 0.85),
+                  color: darkMode ? "#f8fafc" : "#111",
                   boxShadow: `0 0 0 1px ${hexToRgba(dayColor, 0.12)}`,
                 }
               : undefined;
@@ -355,9 +412,13 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 }}
                 role="button"
                 tabIndex={0}
-                className={`min-w-[20rem] shrink-0 rounded-xl border p-3 transition duration-300 cursor-pointer  ${
+                className={`min-w-[20rem] shrink-0 rounded-xl border p-3 transition duration-300 cursor-pointer ${
                   isSelected
-                    ? "border-slate-900 bg-white shadow-[0_12px_60px_-18px_rgba(15,23,42,0.35)]"
+                    ? darkMode
+                      ? "border-[#483d6d] bg-[#241c3f] shadow-[0_12px_60px_-18px_rgba(46,36,76,0.25)]"
+                      : "border-slate-900 bg-white shadow-[0_12px_60px_-18px_rgba(15,23,42,0.35)]"
+                    : darkMode
+                    ? "border-transparent bg-[#241c3f]/80"
                     : "border-transparent bg-slate-100/90"
                 } ${index === 0 ? "mr-2" : "mx-2"} ${index === days.length - 1 ? "ml-2" : ""}`}
                 style={applyColor ? { borderColor: dayColor } : undefined}
@@ -365,10 +426,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div>
                     <div className={todayDateClasses} style={todayDateStyle}>
-                      <p className="text-[0.55rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      <p className={`text-[0.55rem] font-semibold uppercase tracking-[0.22em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                         {weekdayShort}
                       </p>
-                      <p className="mt-1 text-lg font-semibold leading-tight text-slate-900">
+                      <p className={`mt-1 text-lg font-semibold leading-tight ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
                         {formatMonthDay(day.date)}
                       </p>
                     </div>
@@ -381,7 +442,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         setActiveAddIndex(index);
                         setNewTaskInput("");
                       }}
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-900 transition hover:bg-slate-100"
+                      className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition"
+                      style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
                     >
                       + Add task
                     </button>
@@ -394,7 +456,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     return (
                       <div
                         key={`${task.title}-${taskIndex}`}
-                        className="rounded-xl border border-slate-200 px-3 py-3 shadow-sm"
+                        className={`rounded-xl border px-3 py-3 shadow-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}
                         style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -420,19 +482,41 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                               }
                             }}
                             onBlur={saveEditedTask}
-                            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                            className={`w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-300 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
                           />
                         ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEditingTask(index, taskIndex, task.title);
-                            }}
-                            className="w-full text-left"
-                          >
-                            <p className={`${applyColor ? 'text-slate-900' : 'text-slate-900'} text-sm font-semibold leading-snug`}>{task.title}</p>
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <label
+                              className="relative inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border transition"
+                              style={applyColor ? { borderColor: dayColor, color: dayColor } : undefined}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={Boolean(task.completed)}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  toggleTaskCompleted(index, taskIndex);
+                                }}
+                                className="peer sr-only"
+                              />
+                              <span className="absolute inset-0 rounded-full bg-white transition peer-checked:bg-current" />
+                              <span className="pointer-events-none text-[0.55rem] font-semibold text-white opacity-0 transition peer-checked:opacity-100">
+                                ✓
+                              </span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEditingTask(index, taskIndex, task.title);
+                              }}
+                              className="w-full text-left"
+                            >
+                              <p className={`${darkMode ? 'text-slate-100' : 'text-slate-900'} text-sm font-semibold leading-snug ${task.completed ? 'line-through text-slate-500' : ''}`}>
+                                {task.title}
+                              </p>
+                            </button>
+                          </div>
                         )}
                       </div>
                     );
@@ -441,6 +525,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
 
                 {contextMenu?.dayIndex === index ? (
                   <div
+                    ref={contextMenuRef}
                     className="fixed z-50 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                   >
@@ -450,7 +535,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         e.stopPropagation();
                         deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
                       }}
-                      className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      className="rounded-full border px-3 py-2 text-sm font-medium transition"
+                      style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
                     >
                       Delete
                     </button>
@@ -480,7 +566,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         setActiveAddIndex(null);
                       }}
                       placeholder="New task..."
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                      className={`w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-200 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
                     />
                   </div>
                 ) : null}
