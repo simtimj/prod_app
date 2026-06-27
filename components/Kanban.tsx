@@ -137,6 +137,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [editTaskInput, setEditTaskInput] = useState<string>("");
+  const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -207,6 +208,24 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     );
     setEditingTask(null);
     setEditTaskInput("");
+  };
+
+  const deleteTask = (dayIndex: number, taskIndex: number) => {
+    setDays((currentDays) =>
+      currentDays.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              tasks: day.tasks.filter((_, currentTaskIndex) => currentTaskIndex !== taskIndex),
+            }
+          : day
+      )
+    );
+    setContextMenu(null);
+    if (editingTask?.dayIndex === dayIndex && editingTask?.taskIndex === taskIndex) {
+      setEditingTask(null);
+      setEditTaskInput("");
+    }
   };
 
   useEffect(() => {
@@ -377,6 +396,11 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         key={`${task.title}-${taskIndex}`}
                         className="rounded-xl border border-slate-200 px-3 py-3 shadow-sm"
                         style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ dayIndex: index, taskIndex, x: e.clientX, y: e.clientY });
+                        }}
                       >
                         {isEditing ? (
                           <input
@@ -414,6 +438,24 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     );
                   })}
                 </div>
+
+                {contextMenu?.dayIndex === index ? (
+                  <div
+                    className="fixed z-50 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
+                      }}
+                      className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
 
                 {activeAddIndex === index ? (
                   <div className="mt-2 space-y-2">
