@@ -152,6 +152,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [editTaskInput, setEditTaskInput] = useState<string>("");
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
+  const [contextMenuMoveOpen, setContextMenuMoveOpen] = useState(false);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -261,6 +262,22 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       setEditingTask(null);
       setEditTaskInput("");
     }
+  };
+
+  const moveTask = (fromDay: number, fromTask: number, toDay: number) => {
+    if (fromDay === toDay) {
+      setContextMenu(null);
+      return;
+    }
+    setDays((currentDays) => {
+      const daysCopy = currentDays.map((d) => ({ ...d, tasks: [...d.tasks] }));
+      const task = daysCopy[fromDay]?.tasks?.[fromTask];
+      if (!task) return currentDays;
+      daysCopy[fromDay].tasks.splice(fromTask, 1);
+      daysCopy[toDay].tasks = [...daysCopy[toDay].tasks, task];
+      return daysCopy;
+    });
+    setContextMenu(null);
   };
 
   const toggleTaskCompleted = (dayIndex: number, taskIndex: number) => {
@@ -562,6 +579,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          setContextMenuMoveOpen(false);
                           setContextMenu({ dayIndex: index, taskIndex, x: e.clientX, y: e.clientY });
                         }}
                       >
@@ -627,20 +645,49 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 {contextMenu?.dayIndex === index ? (
                   <div
                     ref={contextMenuRef}
-                    className="fixed z-50 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
+                    className={`fixed z-50 rounded-xl border p-2 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                   >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
-                      }}
-                      className="rounded-full border px-3 py-2 text-sm font-medium transition"
-                      style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
-                    >
-                      Delete
-                    </button>
+                    <div className="flex flex-col items-stretch gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setContextMenuMoveOpen((v) => !v);
+                        }}
+                        className={`w-full px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                      >
+                        Move
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
+                        }}
+                        className={`w-full px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    {contextMenuMoveOpen ? (
+                      <div className="mt-2 max-h-40 w-48 overflow-auto rounded-md bg-transparent px-1 py-1">
+                        {days.map((d, di) => (
+                          <button
+                            key={`${d.label}-${di}`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              moveTask(contextMenu.dayIndex, contextMenu.taskIndex, di);
+                              setContextMenuMoveOpen(false);
+                            }}
+                            className={`w-full text-left px-2 py-1 text-sm transition ${darkMode ? 'hover:bg-[#2f2640]' : 'hover:bg-slate-100'}`}
+                          >
+                            {formatMonthDay(d.date)} • {formatWeekdayShort(d.date)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
