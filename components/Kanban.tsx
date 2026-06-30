@@ -144,6 +144,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const today = useMemo(() => new Date(), []);
   const [days, setDays] = useState<DayColumn[]>(() => buildDayColumns(today));
   const [darkMode, setDarkMode] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const themeColors = darkMode ? darkColors : lightColors;
   const selectedDay = days[selectedIndex];
   const [newTaskInput, setNewTaskInput] = useState<string>("");
@@ -154,6 +155,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const dragImageRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -278,6 +280,76 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     );
   };
 
+  const handleDragStart = (fromDay: number, fromTask: number, e: React.DragEvent) => {
+    try {
+      e.dataTransfer.setData('application/json', JSON.stringify({ fromDay, fromTask }));
+      e.dataTransfer.effectAllowed = 'move';
+      // create a cloned node to use as the drag image so the item appears to move with the cursor
+      try {
+        const el = e.currentTarget as HTMLElement;
+        const clone = el.cloneNode(true) as HTMLElement;
+        // style clone for drag preview
+        clone.style.position = 'absolute';
+        clone.style.top = '-9999px';
+        clone.style.left = '-9999px';
+        clone.style.width = `${el.offsetWidth}px`;
+        clone.style.boxShadow = '0 10px 30px rgba(2,6,23,0.2)';
+        clone.style.transform = 'scale(0.98)';
+        clone.style.borderRadius = getComputedStyle(el).borderRadius || '8px';
+        document.body.appendChild(clone);
+        try {
+          e.dataTransfer.setDragImage(clone, clone.offsetWidth / 2, clone.offsetHeight / 2);
+        } catch {}
+        dragImageRef.current = clone;
+      } catch {}
+      // mark the dragged element so we can style it if needed
+      try {
+        (e.currentTarget as HTMLElement)?.classList.add('kanban-dragging');
+      } catch {}
+    } catch {}
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    try {
+      e.dataTransfer.clearData();
+      try {
+        (e.currentTarget as HTMLElement)?.classList.remove('kanban-dragging');
+      } catch {}
+      try {
+        if (dragImageRef.current && dragImageRef.current.parentNode) {
+          dragImageRef.current.parentNode.removeChild(dragImageRef.current);
+        }
+        dragImageRef.current = null;
+      } catch {}
+    } catch {}
+  };
+
+  const handleDrop = (toDay: number, e: React.DragEvent) => {
+    e.preventDefault();
+    const payload = e.dataTransfer.getData('application/json');
+    if (!payload) return;
+    let parsed: { fromDay: number; fromTask: number } | null = null;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    if (!parsed) return;
+    const { fromDay, fromTask } = parsed;
+    if (fromDay === toDay) return; // no-op for same column
+
+    setDays((currentDays) => {
+      const daysCopy = currentDays.map((d) => ({ ...d, tasks: [...d.tasks] }));
+      const task = daysCopy[fromDay]?.tasks?.[fromTask];
+      if (!task) return currentDays;
+      // remove from source
+      daysCopy[fromDay].tasks.splice(fromTask, 1);
+      // append to target
+      daysCopy[toDay].tasks = [...daysCopy[toDay].tasks, task];
+      return daysCopy;
+    });
+  };
+
   useEffect(() => {
     if (ignoreScrollRef.current) {
       ignoreScrollRef.current = false;
@@ -352,6 +424,30 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             {darkMode ? "Switch to Light" : "Switch to Dark"}
           </button>
         </div>
+        <div className="flex items-center">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOptionsOpen((v) => !v);
+              }}
+              aria-expanded={optionsOpen}
+              aria-label="Options"
+              className={`p-2 rounded-md transition flex items-center justify-center ${darkMode ? 'border-[#423865] text-slate-100 bg-transparent' : 'border-slate-200 text-slate-700 bg-white'}`}
+            >
+              <span className="text-lg">☰</span>
+            </button>
+            {optionsOpen ? (
+              <div
+                className={`absolute right-0 mt-2 w-40 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+                style={{ borderTopRightRadius: 0 }}
+              >
+                Test text
+              </div>
+            ) : null}
+          </div>
+        </div>
       </header>
 
       <section className={`overflow-hidden border shadow-sm ${darkMode ? "border-[#372a5d] bg-[#181224] shadow-[#241b35]/30" : "border-slate-200 bg-slate-50 shadow-slate-200/50"}`}>
@@ -395,6 +491,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 ref={(el) => {
                   dayRefs.current[index] = el;
                 }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => handleDrop(index, e)}
                 onClick={() => {
                   if (dragRef.current.moved) {
                     // click came after a drag; ignore selection
@@ -456,6 +554,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     return (
                       <div
                         key={`${task.title}-${taskIndex}`}
+                        draggable
+                        onDragStart={(e) => handleDragStart(index, taskIndex, e)}
+                        onDragEnd={handleDragEnd}
                         className={`rounded-xl border px-3 py-3 shadow-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}
                         style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
                         onContextMenu={(e) => {
