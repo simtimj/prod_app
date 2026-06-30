@@ -151,6 +151,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [editTaskInput, setEditTaskInput] = useState<string>("");
+  const [expandedTask, setExpandedTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
   const [contextMenuMoveOpen, setContextMenuMoveOpen] = useState(false);
   const addInputRef = useRef<HTMLInputElement | null>(null);
@@ -189,6 +190,15 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     };
   }, [contextMenu]);
 
+  useEffect(() => {
+    if (!expandedTask) return;
+    const day = days[expandedTask.dayIndex];
+    const task = day?.tasks?.[expandedTask.taskIndex];
+    if (!task) {
+      setExpandedTask(null);
+    }
+  }, [days, expandedTask]);
+
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
     const target = dayRefs.current[index];
@@ -220,6 +230,13 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const startEditingTask = (dayIndex: number, taskIndex: number, title: string) => {
     setEditingTask({ dayIndex, taskIndex });
     setEditTaskInput(title);
+  };
+
+  const openExpandedTask = (dayIndex: number, taskIndex: number) => {
+    setSelectedIndex(dayIndex);
+    setExpandedTask({ dayIndex, taskIndex });
+    setContextMenu(null);
+    setContextMenuMoveOpen(false);
   };
 
   const saveEditedTask = () => {
@@ -262,6 +279,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       setEditingTask(null);
       setEditTaskInput("");
     }
+    if (expandedTask?.dayIndex === dayIndex && expandedTask?.taskIndex === taskIndex) {
+      setExpandedTask(null);
+    }
   };
 
   const moveTask = (fromDay: number, fromTask: number, toDay: number) => {
@@ -278,6 +298,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       return daysCopy;
     });
     setContextMenu(null);
+    if (expandedTask?.dayIndex === fromDay && expandedTask?.taskIndex === fromTask) {
+      setExpandedTask(null);
+    }
   };
 
   const toggleTaskCompleted = (dayIndex: number, taskIndex: number) => {
@@ -574,6 +597,12 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         draggable
                         onDragStart={(e) => handleDragStart(index, taskIndex, e)}
                         onDragEnd={handleDragEnd}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isEditing) {
+                            openExpandedTask(index, taskIndex);
+                          }
+                        }}
                         className={`rounded-xl border px-3 py-3 shadow-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}
                         style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
                         onContextMenu={(e) => {
@@ -607,11 +636,13 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                           <div className="flex items-center gap-1.5">
                             <label
                               className="relative inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border transition"
+                              onClick={(e) => e.stopPropagation()}
                               style={applyColor ? { borderColor: dayColor, color: dayColor } : undefined}
                             >
                               <input
                                 type="checkbox"
                                 checked={Boolean(task.completed)}
+                                onClick={(e) => e.stopPropagation()}
                                 onChange={(e) => {
                                   e.stopPropagation();
                                   toggleTaskCompleted(index, taskIndex);
@@ -627,7 +658,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                startEditingTask(index, taskIndex, task.title);
+                                openExpandedTask(index, taskIndex);
                               }}
                               className="w-full text-left"
                             >
@@ -648,14 +679,14 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     className={`fixed z-50 rounded-xl border p-2 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                   >
-                    <div className="flex flex-col items-stretch gap-2">
+                    <div className="flex flex-col items-stretch gap-0">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setContextMenuMoveOpen((v) => !v);
                         }}
-                        className={`w-full px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                        className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
                       >
                         Move
                       </button>
@@ -665,7 +696,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                           e.stopPropagation();
                           deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
                         }}
-                        className={`w-full px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                        className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
                       >
                         Delete
                       </button>
@@ -723,6 +754,60 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
           })}
         </div>
       </section>
+
+      {expandedTask ? (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setExpandedTask(null)}
+        >
+          <div
+            className={`w-full max-w-2xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  Task Detail
+                </p>
+                <h2 className="mt-1 text-xl font-semibold leading-tight">
+                  {days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex]?.title ?? "Untitled Task"}
+                </h2>
+                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  {formatWeekdayLong(days[expandedTask.dayIndex]?.date ?? new Date())} · {formatMonthDay(days[expandedTask.dayIndex]?.date ?? new Date())}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpandedTask(null)}
+                className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+                <p className="text-sm font-semibold">Notes (placeholder)</p>
+                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  Add rich task notes here.
+                </p>
+              </div>
+              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+                <p className="text-sm font-semibold">Subtasks (placeholder)</p>
+                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  Track checklist items, owner, and due times.
+                </p>
+              </div>
+              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+                <p className="text-sm font-semibold">Activity (placeholder)</p>
+                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  Show comments, edits, and history here.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
