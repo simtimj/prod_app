@@ -707,7 +707,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         ) : (
                           <div className="flex items-center gap-1.5">
                             <label
-                              className={`relative inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md border transition ${darkMode ? 'border-slate-500 text-slate-300' : 'border-slate-400 text-slate-700'}`}
+                              className={`relative inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition ${darkMode ? 'border-slate-500 text-slate-300' : 'border-slate-400 text-slate-700'}`}
                               onClick={(e) => e.stopPropagation()}
                               style={taskColor ? { color: taskColor, borderColor: hexToRgba(taskColor, darkMode ? 0.85 : 0.7) } : undefined}
                             >
@@ -721,8 +721,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                                 }}
                                 className="peer sr-only"
                               />
-                              <span className="absolute inset-0 z-0 rounded-md bg-white transition peer-checked:bg-current" />
-                              <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-[0.82rem] w-[0.4rem] -translate-x-1/2 -translate-y-[58%] rotate-45 border-b-[3px] border-r-[3px] border-white opacity-0 transition peer-checked:opacity-100">
+                              <span className="absolute inset-0 z-0 rounded-lg bg-white transition peer-checked:bg-current" />
+                              <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-[0.72rem] w-[0.34rem] -translate-x-1/2 translate-y-[-56%] rotate-45 border-b-[2.6px] border-r-[2.6px] border-white opacity-0 transition peer-checked:opacity-100">
                               </span>
                             </label>
                             <button
