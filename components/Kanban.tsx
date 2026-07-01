@@ -187,6 +187,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [contextMenuTagOpen, setContextMenuTagOpen] = useState(false);
   const [contextMenuTagInput, setContextMenuTagInput] = useState("");
   const [contextMenuTagColorInput, setContextMenuTagColorInput] = useState("#22c55e");
+  const [dropTarget, setDropTarget] = useState<{ dayIndex: number; insertIndex: number } | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -362,6 +363,38 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     }
   };
 
+  const moveTaskToIndex = (fromDay: number, fromTask: number, toDay: number, insertIndex: number) => {
+    setDays((currentDays) => {
+      const daysCopy = currentDays.map((d) => ({ ...d, tasks: [...d.tasks] }));
+      const sourceTasks = daysCopy[fromDay]?.tasks;
+      const targetTasks = daysCopy[toDay]?.tasks;
+      const task = sourceTasks?.[fromTask];
+      if (!sourceTasks || !targetTasks || !task) return currentDays;
+
+      sourceTasks.splice(fromTask, 1);
+      let nextInsertIndex = insertIndex;
+      if (fromDay === toDay && fromTask < insertIndex) {
+        nextInsertIndex -= 1;
+      }
+      nextInsertIndex = Math.max(0, Math.min(nextInsertIndex, targetTasks.length));
+
+      if (fromDay === toDay && nextInsertIndex === fromTask) {
+        sourceTasks.splice(fromTask, 0, task);
+        return currentDays;
+      }
+
+      targetTasks.splice(nextInsertIndex, 0, task);
+      return daysCopy;
+    });
+
+    setDropTarget(null);
+    setContextMenu(null);
+
+    if (expandedTask?.dayIndex === fromDay && expandedTask?.taskIndex === fromTask) {
+      setExpandedTask({ dayIndex: toDay, taskIndex: insertIndex });
+    }
+  };
+
   const toggleTaskCompleted = (dayIndex: number, taskIndex: number) => {
     setDays((currentDays) =>
       currentDays.map((day, currentDayIndex) =>
@@ -420,10 +453,11 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
         }
         dragImageRef.current = null;
       } catch {}
+      setDropTarget(null);
     } catch {}
   };
 
-  const handleDrop = (toDay: number, e: React.DragEvent) => {
+  const handleDrop = (toDay: number, insertIndex: number, e: React.DragEvent) => {
     e.preventDefault();
     const payload = e.dataTransfer.getData('application/json');
     if (!payload) return;
@@ -435,18 +469,27 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     }
     if (!parsed) return;
     const { fromDay, fromTask } = parsed;
-    if (fromDay === toDay) return; // no-op for same column
+    moveTaskToIndex(fromDay, fromTask, toDay, insertIndex);
+  };
 
-    setDays((currentDays) => {
-      const daysCopy = currentDays.map((d) => ({ ...d, tasks: [...d.tasks] }));
-      const task = daysCopy[fromDay]?.tasks?.[fromTask];
-      if (!task) return currentDays;
-      // remove from source
-      daysCopy[fromDay].tasks.splice(fromTask, 1);
-      // append to target
-      daysCopy[toDay].tasks = [...daysCopy[toDay].tasks, task];
-      return daysCopy;
-    });
+  const handleTaskDragOver = (dayIndex: number, taskIndex: number, e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const insertIndex = e.clientY < bounds.top + bounds.height / 2 ? taskIndex : taskIndex + 1;
+    setDropTarget((current) =>
+      current?.dayIndex === dayIndex && current.insertIndex === insertIndex
+        ? current
+        : { dayIndex, insertIndex }
+    );
+  };
+
+  const handleListDragOver = (dayIndex: number, insertIndex: number, e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDropTarget((current) =>
+      current?.dayIndex === dayIndex && current.insertIndex === insertIndex
+        ? current
+        : { dayIndex, insertIndex }
+    );
   };
 
   useEffect(() => {
@@ -612,8 +655,6 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 ref={(el) => {
                   dayRefs.current[index] = el;
                 }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => handleDrop(index, e)}
                 onClick={() => {
                   if (dragRef.current.moved) {
                     // click came after a drag; ignore selection
@@ -675,42 +716,49 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     const isHovered = hoveredTask?.dayIndex === index && hoveredTask?.taskIndex === taskIndex;
                     const taskColor = task.tagColor;
                     return (
-                      <div
-                        key={`${task.title}-${taskIndex}`}
-                        draggable
-                        onDragStart={(e) => handleDragStart(index, taskIndex, e)}
-                        onDragEnd={handleDragEnd}
-                        onMouseEnter={() => setHoveredTask({ dayIndex: index, taskIndex })}
-                        onMouseLeave={() => {
-                          setHoveredTask((current) =>
-                            current?.dayIndex === index && current?.taskIndex === taskIndex ? null : current
-                          );
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!isEditing) {
-                            openExpandedTask(index, taskIndex);
+                      <div key={`${task.title}-${taskIndex}`}>
+                        {dropTarget?.dayIndex === index && dropTarget.insertIndex === taskIndex ? (
+                          <div
+                            className={`mb-1 h-1 rounded-full ${darkMode ? 'bg-slate-300/45' : 'bg-slate-500/35'}`}
+                          />
+                        ) : null}
+                        <div
+                          draggable
+                          onDragStart={(e) => handleDragStart(index, taskIndex, e)}
+                          onDragEnd={handleDragEnd}
+                          onDragOver={(e) => handleTaskDragOver(index, taskIndex, e)}
+                          onDrop={(e) => handleDrop(index, dropTarget?.dayIndex === index ? dropTarget.insertIndex : taskIndex, e)}
+                          onMouseEnter={() => setHoveredTask({ dayIndex: index, taskIndex })}
+                          onMouseLeave={() => {
+                            setHoveredTask((current) =>
+                              current?.dayIndex === index && current?.taskIndex === taskIndex ? null : current
+                            );
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isEditing) {
+                              openExpandedTask(index, taskIndex);
+                            }
+                          }}
+                          className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-600" : "border-slate-300"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
+                          style={
+                            taskColor
+                              ? {
+                                  backgroundColor: hexToRgba(taskColor, isHovered ? (darkMode ? 0.34 : 0.24) : (darkMode ? 0.2 : 0.14)),
+                                  borderColor: isHovered ? hexToRgba(taskColor, 1) : hexToRgba(taskColor, darkMode ? 0.75 : 0.55),
+                                }
+                              : undefined
                           }
-                        }}
-                        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-600" : "border-slate-300"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
-                        style={
-                          taskColor
-                            ? {
-                                backgroundColor: hexToRgba(taskColor, isHovered ? (darkMode ? 0.34 : 0.24) : (darkMode ? 0.2 : 0.14)),
-                                borderColor: isHovered ? hexToRgba(taskColor, 1) : hexToRgba(taskColor, darkMode ? 0.75 : 0.55),
-                              }
-                            : undefined
-                        }
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setContextMenuMoveOpen(false);
-                          setContextMenuTagOpen(false);
-                          setContextMenuTagInput(task.tag ?? "");
-                          setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
-                          setContextMenu({ dayIndex: index, taskIndex, x: e.clientX, y: e.clientY });
-                        }}
-                      >
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setContextMenuMoveOpen(false);
+                            setContextMenuTagOpen(false);
+                            setContextMenuTagInput(task.tag ?? "");
+                            setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
+                            setContextMenu({ dayIndex: index, taskIndex, x: e.clientX, y: e.clientY });
+                          }}
+                        >
                         {isEditing ? (
                           <input
                             ref={editInputRef}
@@ -778,9 +826,23 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             ) : null}
                           </div>
                         )}
+                        </div>
                       </div>
                     );
                   })}
+                  <div
+                    onDragOver={(e) => handleListDragOver(index, day.tasks.length, e)}
+                    onDrop={(e) => handleDrop(index, day.tasks.length, e)}
+                    className={`mt-1 rounded-lg transition ${day.tasks.length === 0 ? 'min-h-8' : 'min-h-3'}`}
+                  >
+                    {dropTarget?.dayIndex === index && dropTarget.insertIndex === day.tasks.length ? (
+                      <div className={`h-1 rounded-full ${darkMode ? 'bg-slate-300/45' : 'bg-slate-500/35'}`} />
+                    ) : day.tasks.length === 0 ? (
+                      <div className={`rounded-lg border border-dashed px-3 py-2 text-xs ${darkMode ? 'border-slate-600 text-slate-400' : 'border-slate-300 text-slate-500'}`}>
+                        Drag a task here
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
 
                 {contextMenu?.dayIndex === index ? (
