@@ -565,7 +565,6 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
               dayColors?.[weekdayLong] ?? dayColors?.[weekdayShort] ?? themeColors[weekdayLong] ?? themeColors[weekdayShort];
             const isLast = index === days.length - 1;
             const applyColor = Boolean(dayColor);
-            const taskCardBg = dayColor ? hexToRgba(dayColor, 0.14) : undefined;
             const buttonTextColor = applyColor ? "#000" : undefined;
             const buttonBgColor = dayColor ? hexToRgba(dayColor, 0.9) : undefined;
             const isToday = index === CENTER_INDEX;
@@ -647,6 +646,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     const isEditing =
                       editingTask?.dayIndex === index && editingTask?.taskIndex === taskIndex;
                     const isHovered = hoveredTask?.dayIndex === index && hoveredTask?.taskIndex === taskIndex;
+                    const taskColor = task.tagColor;
                     return (
                       <div
                         key={`${task.title}-${taskIndex}`}
@@ -665,12 +665,12 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             openExpandedTask(index, taskIndex);
                           }
                         }}
-                        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-700" : "border-slate-200"}`}
+                        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-700" : "border-slate-200"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
                         style={
-                          applyColor && dayColor
+                          taskColor
                             ? {
-                                backgroundColor: hexToRgba(dayColor, isHovered ? (darkMode ? 0.3 : 0.24) : 0.14),
-                                borderColor: isHovered ? hexToRgba(dayColor, 1) : dayColor,
+                                backgroundColor: hexToRgba(taskColor, isHovered ? (darkMode ? 0.34 : 0.24) : (darkMode ? 0.2 : 0.14)),
+                                borderColor: isHovered ? hexToRgba(taskColor, 1) : hexToRgba(taskColor, darkMode ? 0.75 : 0.55),
                               }
                             : undefined
                         }
@@ -707,9 +707,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         ) : (
                           <div className="flex items-center gap-1.5">
                             <label
-                              className="relative inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border transition"
+                              className={`relative inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border transition ${darkMode ? 'border-slate-500 text-slate-300' : 'border-slate-400 text-slate-700'}`}
                               onClick={(e) => e.stopPropagation()}
-                              style={applyColor ? { borderColor: dayColor, color: dayColor } : undefined}
                             >
                               <input
                                 type="checkbox"
