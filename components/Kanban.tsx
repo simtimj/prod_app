@@ -6,6 +6,8 @@ type Task = {
   title: string;
   status?: string;
   completed?: boolean;
+  tag?: string;
+  tagColor?: string;
 };
 
 type DayColumn = {
@@ -88,6 +90,27 @@ function formatWeekdayLong(date: Date) {
   });
 }
 
+const TAG_COLOR_OPTIONS = [
+  "#86efac", // light green
+  "#22c55e", // green
+  "#166534", // dark green
+  "#93c5fd", // light blue
+  "#3b82f6", // blue
+  "#1e3a8a", // dark blue
+  "#fca5a5", // light red
+  "#ef4444", // red
+  "#991b1b", // dark red
+  "#d8b4fe", // light purple
+  "#a855f7", // purple
+  "#6b21a8", // dark purple
+  "#fdba74", // light orange
+  "#f97316", // orange
+  "#9a3412", // dark orange
+  "#d1d5db", // light gray
+  "#6b7280", // gray
+  "#374151", // dark gray
+];
+
 function buildDayColumns(today: Date): DayColumn[] {
   const samples: Task[][] = [
     [
@@ -134,7 +157,7 @@ function buildDayColumns(today: Date): DayColumn[] {
 }
 
 export default function Kanban({ dayColors }: { dayColors?: Record<string, string> } = {}) {
-    const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
+  const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dayRefs = useRef<Array<HTMLDivElement | null>>([]);
   const ignoreScrollRef = useRef(false);
@@ -152,8 +175,14 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [editTaskInput, setEditTaskInput] = useState<string>("");
   const [expandedTask, setExpandedTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
+  const [expandedTagInput, setExpandedTagInput] = useState("");
+  const [expandedTagColorInput, setExpandedTagColorInput] = useState("#22c55e");
+  const [hoveredTask, setHoveredTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
   const [contextMenuMoveOpen, setContextMenuMoveOpen] = useState(false);
+  const [contextMenuTagOpen, setContextMenuTagOpen] = useState(false);
+  const [contextMenuTagInput, setContextMenuTagInput] = useState("");
+  const [contextMenuTagColorInput, setContextMenuTagColorInput] = useState("#22c55e");
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -196,7 +225,11 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     const task = day?.tasks?.[expandedTask.taskIndex];
     if (!task) {
       setExpandedTask(null);
+      setExpandedTagInput("");
+      return;
     }
+    setExpandedTagInput(task.tag ?? "");
+    setExpandedTagColorInput(task.tagColor ?? "#22c55e");
   }, [days, expandedTask]);
 
   const scrollDayToStart = (index: number, smooth = true) => {
@@ -237,6 +270,28 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     setExpandedTask({ dayIndex, taskIndex });
     setContextMenu(null);
     setContextMenuMoveOpen(false);
+  };
+
+  const setTaskTag = (dayIndex: number, taskIndex: number, tag: string, color?: string) => {
+    const trimmedTag = tag.trim();
+    setDays((currentDays) =>
+      currentDays.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              tasks: day.tasks.map((task, currentTaskIndex) =>
+                currentTaskIndex === taskIndex
+                  ? {
+                      ...task,
+                      tag: trimmedTag || undefined,
+                      tagColor: trimmedTag ? (color ?? task.tagColor ?? "#22c55e") : undefined,
+                    }
+                  : task
+              ),
+            }
+          : day
+      )
+    );
   };
 
   const saveEditedTask = () => {
@@ -452,14 +507,14 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
           <button
             type="button"
             onClick={goToday}
-            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 hover:bg-[#332c5a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 hover:bg-[#332c5a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
           >
             Go to Today
           </button>
           <button
             type="button"
             onClick={() => setDarkMode((prev) => !prev)}
-            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
           >
             {darkMode ? "Switch to Light" : "Switch to Dark"}
           </button>
@@ -474,7 +529,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
               }}
               aria-expanded={optionsOpen}
               aria-label="Options"
-              className={`p-2 rounded-md transition flex items-center justify-center ${darkMode ? 'border-[#423865] text-slate-100 bg-transparent' : 'border-slate-200 text-slate-700 bg-white'}`}
+              className={`p-2 rounded-md transition flex items-center justify-center hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
             >
               <span className="text-lg">☰</span>
             </button>
@@ -580,7 +635,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         setActiveAddIndex(index);
                         setNewTaskInput("");
                       }}
-                      className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition"
+                      className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition hover:brightness-90"
                       style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
                     >
                       + Add task
@@ -591,24 +646,41 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                   {day.tasks.map((task, taskIndex) => {
                     const isEditing =
                       editingTask?.dayIndex === index && editingTask?.taskIndex === taskIndex;
+                    const isHovered = hoveredTask?.dayIndex === index && hoveredTask?.taskIndex === taskIndex;
                     return (
                       <div
                         key={`${task.title}-${taskIndex}`}
                         draggable
                         onDragStart={(e) => handleDragStart(index, taskIndex, e)}
                         onDragEnd={handleDragEnd}
+                        onMouseEnter={() => setHoveredTask({ dayIndex: index, taskIndex })}
+                        onMouseLeave={() => {
+                          setHoveredTask((current) =>
+                            current?.dayIndex === index && current?.taskIndex === taskIndex ? null : current
+                          );
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!isEditing) {
                             openExpandedTask(index, taskIndex);
                           }
                         }}
-                        className={`rounded-xl border px-3 py-3 shadow-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}
-                        style={applyColor && taskCardBg ? { backgroundColor: taskCardBg, borderColor: dayColor } : undefined}
+                        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-700" : "border-slate-200"}`}
+                        style={
+                          applyColor && dayColor
+                            ? {
+                                backgroundColor: hexToRgba(dayColor, isHovered ? (darkMode ? 0.3 : 0.24) : 0.14),
+                                borderColor: isHovered ? hexToRgba(dayColor, 1) : dayColor,
+                              }
+                            : undefined
+                        }
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
                           setContextMenuMoveOpen(false);
+                          setContextMenuTagOpen(false);
+                          setContextMenuTagInput(task.tag ?? "");
+                          setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
                           setContextMenu({ dayIndex: index, taskIndex, x: e.clientX, y: e.clientY });
                         }}
                       >
@@ -666,6 +738,18 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                                 {task.title}
                               </p>
                             </button>
+                            {task.tag ? (
+                              <span
+                                className="ml-2 inline-flex max-w-[24%] shrink-0 items-center truncate rounded-md border px-2 py-0.5 text-xs font-medium"
+                                style={{
+                                  color: task.tagColor ? hexToRgba(task.tagColor, darkMode ? 0.98 : 0.8) : undefined,
+                                  borderColor: task.tagColor ? hexToRgba(task.tagColor, darkMode ? 0.75 : 0.6) : undefined,
+                                  backgroundColor: task.tagColor ? hexToRgba(task.tagColor, darkMode ? 0.2 : 0.16) : undefined,
+                                }}
+                              >
+                                {task.tag}
+                              </span>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -685,10 +769,22 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         onClick={(e) => {
                           e.stopPropagation();
                           setContextMenuMoveOpen((v) => !v);
+                          setContextMenuTagOpen(false);
                         }}
                         className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
                       >
                         Move
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setContextMenuTagOpen((v) => !v);
+                          setContextMenuMoveOpen(false);
+                        }}
+                        className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                      >
+                        Tag
                       </button>
                       <button
                         type="button"
@@ -717,6 +813,60 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             {formatMonthDay(d.date)} • {formatWeekdayShort(d.date)}
                           </button>
                         ))}
+                      </div>
+                    ) : null}
+                    {contextMenuTagOpen ? (
+                      <div className="mt-2 w-48 rounded-md bg-transparent px-1 py-1">
+                        <input
+                          type="text"
+                          value={contextMenuTagInput}
+                          onChange={(e) => setContextMenuTagInput(e.target.value)}
+                          placeholder="Set tag"
+                          className={`w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]' : 'border-slate-300 bg-white text-slate-900 focus:border-slate-500'}`}
+                        />
+                        <div className="mt-2 grid grid-cols-6 gap-1">
+                          {TAG_COLOR_OPTIONS.map((color) => {
+                            const active = contextMenuTagColorInput === color;
+                            return (
+                              <button
+                                key={`context-tag-color-${color}`}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setContextMenuTagColorInput(color);
+                                }}
+                                className={`h-5 w-5 rounded-full border ${active ? 'ring-2 ring-slate-400' : ''}`}
+                                style={{ backgroundColor: color, borderColor: darkMode ? '#1f2937' : '#e2e8f0' }}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTaskTag(contextMenu.dayIndex, contextMenu.taskIndex, contextMenuTagInput, contextMenuTagColorInput);
+                              setContextMenuTagOpen(false);
+                            }}
+                            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setContextMenuTagInput("");
+                              setContextMenuTagColorInput("#22c55e");
+                              setTaskTag(contextMenu.dayIndex, contextMenu.taskIndex, "", "#22c55e");
+                              setContextMenuTagOpen(false);
+                            }}
+                            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                          >
+                            Clear
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -786,6 +936,54 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             </div>
 
             <div className="mt-5 grid gap-3">
+              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+                <p className="text-sm font-semibold">Tag</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={expandedTagInput}
+                    onChange={(e) => setExpandedTagInput(e.target.value)}
+                    placeholder="coding, miscellaneous, etc"
+                    className={`min-w-56 flex-1 rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
+                  <div className="grid grid-cols-9 gap-1">
+                    {TAG_COLOR_OPTIONS.map((color) => {
+                      const active = expandedTagColorInput === color;
+                      return (
+                        <button
+                          key={`expanded-tag-color-${color}`}
+                          type="button"
+                          onClick={() => setExpandedTagColorInput(color)}
+                          className={`h-5 w-5 rounded-full border ${active ? 'ring-2 ring-slate-400' : ''}`}
+                          style={{ backgroundColor: color, borderColor: darkMode ? '#1f2937' : '#e2e8f0' }}
+                        />
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!expandedTask) return;
+                      setTaskTag(expandedTask.dayIndex, expandedTask.taskIndex, expandedTagInput, expandedTagColorInput);
+                    }}
+                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+                  >
+                    Save Tag
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!expandedTask) return;
+                      setExpandedTagInput("");
+                      setExpandedTagColorInput("#22c55e");
+                      setTaskTag(expandedTask.dayIndex, expandedTask.taskIndex, "", "#22c55e");
+                    }}
+                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
               <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
                 <p className="text-sm font-semibold">Notes (placeholder)</p>
                 <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
