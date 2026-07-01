@@ -94,6 +94,9 @@ const TAG_COLOR_OPTIONS = [
   "#86efac", // light green
   "#22c55e", // green
   "#166534", // dark green
+  "#d6b38a", // light brown
+  "#8b5e3c", // brown
+  "#5c3b28", // dark brown
   "#93c5fd", // light blue
   "#3b82f6", // blue
   "#1e3a8a", // dark blue
@@ -167,6 +170,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const today = useMemo(() => new Date(), []);
   const [days, setDays] = useState<DayColumn[]>(() => buildDayColumns(today));
   const [darkMode, setDarkMode] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const themeColors = darkMode ? darkColors : lightColors;
   const selectedDay = days[selectedIndex];
@@ -519,12 +523,35 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             {darkMode ? "Switch to Light" : "Switch to Dark"}
           </button>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center gap-2">
           <div className="relative">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                setOptionsOpen(false);
+                setViewsOpen((v) => !v);
+              }}
+              aria-expanded={viewsOpen}
+              aria-label="Views"
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
+            >
+              Views
+            </button>
+            {viewsOpen ? (
+              <div
+                className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+              >
+                View options placeholder
+              </div>
+            ) : null}
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setViewsOpen(false);
                 setOptionsOpen((v) => !v);
               }}
               aria-expanded={optionsOpen}
@@ -665,7 +692,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             openExpandedTask(index, taskIndex);
                           }
                         }}
-                        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-700" : "border-slate-200"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
+                        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-600" : "border-slate-300"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
                         style={
                           taskColor
                             ? {
