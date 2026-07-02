@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type Task = {
   title: string;
-  status?: string;
   completed?: boolean;
   tag?: string;
   tagColor?: string;
@@ -117,34 +116,34 @@ const TAG_COLOR_OPTIONS = [
 function buildDayColumns(today: Date): DayColumn[] {
   const samples: Task[][] = [
     [
-      { title: "Capture ideas for the week", status: "Planned", completed: false },
-      { title: "Check email summaries", status: "In progress", completed: false },
+      { title: "Capture ideas for the week", completed: false },
+      { title: "Check email summaries", completed: false },
     ],
     [
-      { title: "Review today's calendar", status: "Done", completed: true },
-      { title: "Draft meeting notes", status: "Planned", completed: false },
-      { title: "Add priorities to workboard", status: "In progress", completed: false },
+      { title: "Review today's calendar", completed: true },
+      { title: "Draft meeting notes", completed: false },
+      { title: "Add priorities to workboard", completed: false },
     ],
     [
-      { title: "Plan sprint goals", status: "Planned", completed: false },
-      { title: "Update task statuses", status: "In progress", completed: false },
+      { title: "Plan sprint goals", completed: false },
+      { title: "Update task statuses", completed: false },
     ],
     [
-      { title: "Focus on current day", status: "In progress", completed: false },
-      { title: "Complete two quick wins", status: "Planned", completed: false },
-      { title: "Sync with the team", status: "Planned", completed: false },
+      { title: "Focus on current day", completed: false },
+      { title: "Complete two quick wins", completed: false },
+      { title: "Sync with the team", completed: false },
     ],
     [
-      { title: "Prepare tomorrow's agenda", status: "Planned", completed: false },
-      { title: "Review blockers", status: "Planned", completed: false },
+      { title: "Prepare tomorrow's agenda", completed: false },
+      { title: "Review blockers", completed: false },
     ],
     [
-      { title: "Reflect on the week", status: "Planned", completed: false },
-      { title: "Archive done items", status: "Done", completed: true },
+      { title: "Reflect on the week", completed: false },
+      { title: "Archive done items", completed: true },
     ],
     [
-      { title: "Clear small tasks", status: "Planned", completed: false },
-      { title: "Organize backlog", status: "Planned", completed: false },
+      { title: "Clear small tasks", completed: false },
+      { title: "Organize backlog", completed: false },
     ],
   ];
 
