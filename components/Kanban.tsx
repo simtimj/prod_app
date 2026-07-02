@@ -533,6 +533,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     } catch {}
   };
 
+  const activeTask = expandedTask
+    ? days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex] ?? null
+    : null;
+
   // Ensure today is positioned at the left edge on initial mount
   useEffect(() => {
     if (!dayRefs.current[CENTER_INDEX] || !scrollRef.current) return;
@@ -1010,7 +1014,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                   Task Detail
                 </p>
                 <h2 className="mt-1 text-xl font-semibold leading-tight">
-                  {days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex]?.title ?? "Untitled Task"}
+                  {activeTask?.title ?? "Untitled Task"}
                 </h2>
                 <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
                   {formatWeekdayLong(days[expandedTask.dayIndex]?.date ?? new Date())} · {formatMonthDay(days[expandedTask.dayIndex]?.date ?? new Date())}
@@ -1026,6 +1030,43 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             </div>
 
             <div className="mt-5 grid gap-3">
+              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+                <p className="text-sm font-semibold">Task Details</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      Title
+                    </p>
+                    <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                      {activeTask?.title ?? "Untitled Task"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      Due date
+                    </p>
+                    <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                      {activeTask?.dueDate?.trim() ? activeTask.dueDate : "Not set"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      Priority
+                    </p>
+                    <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                      {activeTask?.priority ?? "Not set"}
+                    </p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      Description
+                    </p>
+                    <p className={`mt-1 text-sm leading-relaxed ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                      {activeTask?.description?.trim() ? activeTask.description : "No description added yet."}
+                    </p>
+                  </div>
+                </div>
+              </div>
               <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
                 <p className="text-sm font-semibold">Tag</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1073,24 +1114,6 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     Clear
                   </button>
                 </div>
-              </div>
-              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
-                <p className="text-sm font-semibold">Notes (placeholder)</p>
-                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  Add rich task notes here.
-                </p>
-              </div>
-              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
-                <p className="text-sm font-semibold">Subtasks (placeholder)</p>
-                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  Track checklist items, owner, and due times.
-                </p>
-              </div>
-              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
-                <p className="text-sm font-semibold">Activity (placeholder)</p>
-                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  Show comments, edits, and history here.
-                </p>
               </div>
             </div>
           </div>
