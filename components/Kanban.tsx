@@ -99,6 +99,17 @@ function formatDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function formatDueDateDisplay(dateValue?: string) {
+  if (!dateValue?.trim()) return "";
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateValue;
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 const TAG_COLOR_OPTIONS = [
   "#86efac", // light green
   "#22c55e", // green
@@ -194,16 +205,40 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
   const [contextMenuMoveOpen, setContextMenuMoveOpen] = useState(false);
   const [contextMenuTagOpen, setContextMenuTagOpen] = useState(false);
+  const [contextMenuSavedTagsOpen, setContextMenuSavedTagsOpen] = useState(false);
   const [contextMenuDueDateOpen, setContextMenuDueDateOpen] = useState(false);
   const [contextMenuTagInput, setContextMenuTagInput] = useState("");
   const [contextMenuTagColorInput, setContextMenuTagColorInput] = useState("#22c55e");
   const [contextMenuDueDateInput, setContextMenuDueDateInput] = useState("");
   const [dropTarget, setDropTarget] = useState<{ dayIndex: number; insertIndex: number } | null>(null);
+  const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
+
+  const savedTagSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const suggestions: string[] = [];
+
+    days.forEach((day) => {
+      day.tasks.forEach((task) => {
+        const tag = task.tag?.trim();
+        if (!tag || seen.has(tag)) return;
+        seen.add(tag);
+        suggestions.push(tag);
+      });
+    });
+
+    return suggestions;
+  }, [days]);
+
+  const filteredContextMenuTagSuggestions = useMemo(() => {
+    const query = contextMenuTagInput.trim().toLowerCase();
+    if (!query) return savedTagSuggestions.slice(0, 8);
+    return savedTagSuggestions.filter((tag) => tag.toLowerCase().includes(query)).slice(0, 8);
+  }, [contextMenuTagInput, savedTagSuggestions]);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -791,6 +826,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             e.stopPropagation();
                             setContextMenuMoveOpen(false);
                             setContextMenuTagOpen(false);
+                            setContextMenuSavedTagsOpen(false);
                             setContextMenuDueDateOpen(false);
                             setContextMenuTagInput(task.tag ?? "");
                             setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
@@ -917,6 +953,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                           e.stopPropagation();
                           setContextMenuTagOpen((v) => !v);
                           setContextMenuMoveOpen(false);
+                            setContextMenuSavedTagsOpen(false);
                           setContextMenuDueDateOpen(false);
                         }}
                         className={`w-full border-b px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
@@ -1056,20 +1093,36 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
 
                       {contextMenuTagOpen ? (
                         <div
-                          className={`absolute left-full top-0 ml-1 w-48 rounded-md border px-1 py-1 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-                          style={applyColor && darkMode ? {
-                            backgroundColor: hexToRgba(dayColor, 0.08),
-                            borderColor: dayColor,
-                          } : applyColor ? { borderColor: dayColor } : undefined}
+                          className={`absolute left-full top-0 ml-1 w-48 rounded-md border px-1 py-1 shadow-lg bg-white border-slate-200 text-slate-900`}
+                          style={applyColor ? { borderColor: dayColor } : undefined}
                         >
                           <input
                             type="text"
                             value={contextMenuTagInput}
                             onChange={(e) => setContextMenuTagInput(e.target.value)}
                             placeholder="Set tag"
-                            className={`w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? 'bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]' : 'bg-white text-slate-900 focus:border-slate-500'}`}
+                            onFocus={() => setContextMenuSavedTagsOpen(true)}
+                            onClick={() => setContextMenuSavedTagsOpen(true)}
+                            autoComplete="off"
+                            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900 outline-none transition focus:border-slate-500"
                             style={applyColor ? { borderColor: dayColor } : undefined}
                           />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                              Tags
+                            </p>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setContextMenuSavedTagsOpen((v) => !v);
+                              }}
+                              className={`rounded-md border px-2 py-1 text-[0.68rem] font-medium transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Saved tags
+                            </button>
+                          </div>
                           <div className="mt-2 grid grid-cols-6 gap-1">
                             {TAG_COLOR_OPTIONS.map((color) => {
                               const active = contextMenuTagColorInput === color;
@@ -1115,6 +1168,33 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                               Clear
                             </button>
                           </div>
+                          {contextMenuTagOpen && contextMenuSavedTagsOpen ? (
+                            <div
+                              className="absolute left-full top-0 ml-1 w-44 rounded-md border bg-white p-1 text-slate-900 shadow-lg border-slate-200 z-10"
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              <div className="mb-1 px-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                                Saved tags
+                              </div>
+                              {filteredContextMenuTagSuggestions.length > 0 ? (
+                                filteredContextMenuTagSuggestions.map((tag) => (
+                                  <button
+                                    key={`context-tag-suggestion-${tag}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setContextMenuTagInput(tag);
+                                    }}
+                                    className="block w-full rounded-md px-2 py-1 text-left text-sm text-slate-900 transition hover:bg-slate-100"
+                                  >
+                                    {tag}
+                                  </button>
+                                ))
+                              ) : (
+                                <p className="px-2 py-1 text-sm text-slate-500">No saved tags yet.</p>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -1201,7 +1281,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                       Due date
                     </p>
                     <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                      {activeTask?.dueDate?.trim() ? activeTask.dueDate : "Not set"}
+                      {activeTask?.dueDate?.trim() ? formatDueDateDisplay(activeTask.dueDate) : "Not set"}
                     </p>
                   </div>
                   <div>
@@ -1230,6 +1310,8 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     value={expandedTagInput}
                     onChange={(e) => setExpandedTagInput(e.target.value)}
                     placeholder="coding, miscellaneous, etc"
+                    list={tagSuggestionsListId}
+                    autoComplete="off"
                     className={`min-w-56 flex-1 rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
                   />
                   <div className="grid grid-cols-9 gap-1">
@@ -1272,6 +1354,11 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
               </div>
             </div>
           </div>
+            <datalist id={tagSuggestionsListId}>
+              {savedTagSuggestions.map((tag) => (
+                <option key={tag} value={tag} />
+              ))}
+            </datalist>
         </div>
       ) : null}
     </div>
