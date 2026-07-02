@@ -7,6 +7,9 @@ type Task = {
   completed?: boolean;
   tag?: string;
   tagColor?: string;
+  description?: string;
+  dueDate?: string;
+  priority?: "Low" | "Medium" | "High";
 };
 
 type DayColumn = {
