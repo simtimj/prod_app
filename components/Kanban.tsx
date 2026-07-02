@@ -92,6 +92,13 @@ function formatWeekdayLong(date: Date) {
   });
 }
 
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const TAG_COLOR_OPTIONS = [
   "#86efac", // light green
   "#22c55e", // green
@@ -187,12 +194,15 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
   const [contextMenuMoveOpen, setContextMenuMoveOpen] = useState(false);
   const [contextMenuTagOpen, setContextMenuTagOpen] = useState(false);
+  const [contextMenuDueDateOpen, setContextMenuDueDateOpen] = useState(false);
   const [contextMenuTagInput, setContextMenuTagInput] = useState("");
   const [contextMenuTagColorInput, setContextMenuTagColorInput] = useState("#22c55e");
+  const [contextMenuDueDateInput, setContextMenuDueDateInput] = useState("");
   const [dropTarget, setDropTarget] = useState<{ dayIndex: number; insertIndex: number } | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -292,6 +302,27 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                       ...task,
                       tag: trimmedTag || undefined,
                       tagColor: trimmedTag ? (color ?? task.tagColor ?? "#22c55e") : undefined,
+                    }
+                  : task
+              ),
+            }
+          : day
+      )
+    );
+  };
+
+  const setTaskDueDate = (dayIndex: number, taskIndex: number, dueDate: string) => {
+    const trimmedDueDate = dueDate.trim();
+    setDays((currentDays) =>
+      currentDays.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              tasks: day.tasks.map((task, currentTaskIndex) =>
+                currentTaskIndex === taskIndex
+                  ? {
+                      ...task,
+                      dueDate: trimmedDueDate || undefined,
                     }
                   : task
               ),
@@ -760,8 +791,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             e.stopPropagation();
                             setContextMenuMoveOpen(false);
                             setContextMenuTagOpen(false);
+                            setContextMenuDueDateOpen(false);
                             setContextMenuTagInput(task.tag ?? "");
                             setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
+                            setContextMenuDueDateInput(task.dueDate ?? "");
                             setContextMenu({ dayIndex: index, taskIndex, x: e.clientX, y: e.clientY });
                           }}
                         >
@@ -854,18 +887,27 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 {contextMenu?.dayIndex === index ? (
                   <div
                     ref={contextMenuRef}
-                    className={`fixed z-50 rounded-xl border p-2 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+                    className="fixed z-50 overflow-visible"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                   >
-                    <div className="flex flex-col items-stretch gap-0">
+                    <div
+                      className={`relative rounded-xl border shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+                      style={applyColor ? {
+                        backgroundColor: hexToRgba(dayColor, darkMode ? 0.08 : 0.06),
+                        borderColor: dayColor,
+                      } : undefined}
+                    >
+                      <div className="relative flex flex-col items-stretch overflow-hidden rounded-xl">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setContextMenuMoveOpen((v) => !v);
                           setContextMenuTagOpen(false);
+                          setContextMenuDueDateOpen(false);
                         }}
-                        className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                        className={`w-full border-b px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                        style={applyColor ? { borderBottomColor: hexToRgba(dayColor, 0.55) } : { borderBottomColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgb(226 232 240)' }}
                       >
                         Move
                       </button>
@@ -875,8 +917,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                           e.stopPropagation();
                           setContextMenuTagOpen((v) => !v);
                           setContextMenuMoveOpen(false);
+                          setContextMenuDueDateOpen(false);
                         }}
-                        className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                        className={`w-full border-b px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                        style={applyColor ? { borderBottomColor: hexToRgba(dayColor, 0.55) } : { borderBottomColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgb(226 232 240)' }}
                       >
                         Tag
                       </button>
@@ -884,85 +928,196 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          setContextMenuDueDateOpen((v) => !v);
+                          setContextMenuMoveOpen(false);
+                          setContextMenuTagOpen(false);
+                        }}
+                        className={`w-full border-b px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                        style={applyColor ? { borderBottomColor: hexToRgba(dayColor, 0.55) } : { borderBottomColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgb(226 232 240)' }}
+                      >
+                        Due date
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
                         }}
-                        className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+                        className={`w-full px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
                       >
                         Delete
                       </button>
+                      </div>
+
+                      {contextMenuMoveOpen ? (
+                        <div
+                          className={`absolute left-full top-0 ml-1 max-h-40 w-48 overflow-auto rounded-md border px-1 py-1 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+                          style={applyColor && darkMode ? {
+                            backgroundColor: hexToRgba(dayColor, 0.08),
+                            borderColor: dayColor,
+                          } : applyColor ? { borderColor: dayColor } : undefined}
+                        >
+                          {days.map((d, di) => (
+                            <button
+                              key={`${d.label}-${di}`}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                moveTask(contextMenu.dayIndex, contextMenu.taskIndex, di);
+                                setContextMenuMoveOpen(false);
+                              }}
+                              className={`w-full text-left px-2 py-1 text-sm transition ${darkMode ? 'hover:bg-[#2f2640]' : 'hover:bg-slate-100'}`}
+                            >
+                              {formatMonthDay(d.date)} - {formatWeekdayShort(d.date)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {contextMenuDueDateOpen ? (
+                        <div
+                          className={`absolute left-full top-0 ml-1 w-44 rounded-md border px-1 py-1 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+                          style={applyColor && darkMode ? {
+                            backgroundColor: hexToRgba(dayColor, 0.08),
+                            borderColor: dayColor,
+                          } : applyColor ? { borderColor: dayColor } : undefined}
+                        >
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const todayDate = formatDateInputValue(new Date());
+                                setContextMenuDueDateInput(todayDate);
+                                setTaskDueDate(contextMenu.dayIndex, contextMenu.taskIndex, todayDate);
+                                setContextMenuDueDateOpen(false);
+                              }}
+                              className={`min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[0.68rem] font-medium leading-none whitespace-nowrap transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Today
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const tomorrowDate = formatDateInputValue(addDays(new Date(), 1));
+                                setContextMenuDueDateInput(tomorrowDate);
+                                setTaskDueDate(contextMenu.dayIndex, contextMenu.taskIndex, tomorrowDate);
+                                setContextMenuDueDateOpen(false);
+                              }}
+                              className={`min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[0.68rem] font-medium leading-none whitespace-nowrap transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Tomorrow
+                            </button>
+                          </div>
+                          <input
+                            ref={contextMenuDueDateInputRef}
+                            type="date"
+                            value={contextMenuDueDateInput}
+                            onChange={(e) => setContextMenuDueDateInput(e.target.value)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              contextMenuDueDateInputRef.current?.showPicker?.();
+                            }}
+                            className={`mt-1 w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? 'bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]' : 'bg-white text-slate-900 focus:border-slate-500'}`}
+                            style={applyColor ? { borderColor: dayColor } : undefined}
+                          />
+                          <div className="mt-2 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTaskDueDate(contextMenu.dayIndex, contextMenu.taskIndex, contextMenuDueDateInput);
+                                setContextMenuDueDateOpen(false);
+                              }}
+                              className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setContextMenuDueDateInput("");
+                                setTaskDueDate(contextMenu.dayIndex, contextMenu.taskIndex, "");
+                                setContextMenuDueDateOpen(false);
+                              }}
+                              className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {contextMenuTagOpen ? (
+                        <div
+                          className={`absolute left-full top-0 ml-1 w-48 rounded-md border px-1 py-1 shadow-lg ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+                          style={applyColor && darkMode ? {
+                            backgroundColor: hexToRgba(dayColor, 0.08),
+                            borderColor: dayColor,
+                          } : applyColor ? { borderColor: dayColor } : undefined}
+                        >
+                          <input
+                            type="text"
+                            value={contextMenuTagInput}
+                            onChange={(e) => setContextMenuTagInput(e.target.value)}
+                            placeholder="Set tag"
+                            className={`w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? 'bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]' : 'bg-white text-slate-900 focus:border-slate-500'}`}
+                            style={applyColor ? { borderColor: dayColor } : undefined}
+                          />
+                          <div className="mt-2 grid grid-cols-6 gap-1">
+                            {TAG_COLOR_OPTIONS.map((color) => {
+                              const active = contextMenuTagColorInput === color;
+                              return (
+                                <button
+                                  key={`context-tag-color-${color}`}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setContextMenuTagColorInput(color);
+                                  }}
+                                  className={`h-5 w-5 rounded-full border ${active ? 'ring-2 ring-slate-400' : ''}`}
+                                  style={{ backgroundColor: color, borderColor: darkMode ? '#1f2937' : '#e2e8f0' }}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTaskTag(contextMenu.dayIndex, contextMenu.taskIndex, contextMenuTagInput, contextMenuTagColorInput);
+                                setContextMenuTagOpen(false);
+                              }}
+                              className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setContextMenuTagInput("");
+                                setContextMenuTagColorInput("#22c55e");
+                                setTaskTag(contextMenu.dayIndex, contextMenu.taskIndex, "", "#22c55e");
+                                setContextMenuTagOpen(false);
+                              }}
+                              className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
+                              style={applyColor ? { borderColor: dayColor } : undefined}
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                    {contextMenuMoveOpen ? (
-                      <div className="mt-2 max-h-40 w-48 overflow-auto rounded-md bg-transparent px-1 py-1">
-                        {days.map((d, di) => (
-                          <button
-                            key={`${d.label}-${di}`}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              moveTask(contextMenu.dayIndex, contextMenu.taskIndex, di);
-                              setContextMenuMoveOpen(false);
-                            }}
-                            className={`w-full text-left px-2 py-1 text-sm transition ${darkMode ? 'hover:bg-[#2f2640]' : 'hover:bg-slate-100'}`}
-                          >
-                            {formatMonthDay(d.date)} • {formatWeekdayShort(d.date)}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    {contextMenuTagOpen ? (
-                      <div className="mt-2 w-48 rounded-md bg-transparent px-1 py-1">
-                        <input
-                          type="text"
-                          value={contextMenuTagInput}
-                          onChange={(e) => setContextMenuTagInput(e.target.value)}
-                          placeholder="Set tag"
-                          className={`w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]' : 'border-slate-300 bg-white text-slate-900 focus:border-slate-500'}`}
-                        />
-                        <div className="mt-2 grid grid-cols-6 gap-1">
-                          {TAG_COLOR_OPTIONS.map((color) => {
-                            const active = contextMenuTagColorInput === color;
-                            return (
-                              <button
-                                key={`context-tag-color-${color}`}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setContextMenuTagColorInput(color);
-                                }}
-                                className={`h-5 w-5 rounded-full border ${active ? 'ring-2 ring-slate-400' : ''}`}
-                                style={{ backgroundColor: color, borderColor: darkMode ? '#1f2937' : '#e2e8f0' }}
-                              />
-                            );
-                          })}
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTaskTag(contextMenu.dayIndex, contextMenu.taskIndex, contextMenuTagInput, contextMenuTagColorInput);
-                              setContextMenuTagOpen(false);
-                            }}
-                            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setContextMenuTagInput("");
-                              setContextMenuTagColorInput("#22c55e");
-                              setTaskTag(contextMenu.dayIndex, contextMenu.taskIndex, "", "#22c55e");
-                              setContextMenuTagOpen(false);
-                            }}
-                            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? 'bg-[#2f2640] border-[#372a5d] text-slate-100 hover:bg-[#3b315a]' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-100'}`}
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
 
