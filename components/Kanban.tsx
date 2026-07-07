@@ -38,14 +38,14 @@ const darkColors: Record<string, string> = {
   "Saturday": "#8a5a00",
 };
 
-let daysOfWeek: Record<string, string> = {
+const daysOfWeek: Record<string, string> = {
   "Sunday": "Sun",
   "Monday": "Mon",
   "Tuesday": "Tues",
   "Wednesday": "Weds",
   "Thursday": "Thurs", 
   "Friday": "Fri"
-}
+};
 
 function hexToRgba(hex: string, alpha = 1) {
   const h = hex.replace('#', '');
@@ -193,7 +193,6 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const themeColors = darkMode ? darkColors : lightColors;
-  const selectedDay = days[selectedIndex];
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
@@ -271,19 +270,6 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     };
   }, [contextMenu]);
 
-  useEffect(() => {
-    if (!expandedTask) return;
-    const day = days[expandedTask.dayIndex];
-    const task = day?.tasks?.[expandedTask.taskIndex];
-    if (!task) {
-      setExpandedTask(null);
-      setExpandedTagInput("");
-      return;
-    }
-    setExpandedTagInput(task.tag ?? "");
-    setExpandedTagColorInput(task.tagColor ?? "#22c55e");
-  }, [days, expandedTask]);
-
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
     const target = dayRefs.current[index];
@@ -312,14 +298,12 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     setActiveAddIndex(null);
   };
 
-  const startEditingTask = (dayIndex: number, taskIndex: number, title: string) => {
-    setEditingTask({ dayIndex, taskIndex });
-    setEditTaskInput(title);
-  };
-
   const openExpandedTask = (dayIndex: number, taskIndex: number) => {
+    const task = days[dayIndex]?.tasks?.[taskIndex];
     setSelectedIndex(dayIndex);
     setExpandedTask({ dayIndex, taskIndex });
+    setExpandedTagInput(task?.tag ?? "");
+    setExpandedTagColorInput(task?.tagColor ?? "#22c55e");
     setContextMenu(null);
     setContextMenuMoveOpen(false);
   };
@@ -358,6 +342,26 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                   ? {
                       ...task,
                       dueDate: trimmedDueDate || undefined,
+                    }
+                  : task
+              ),
+            }
+          : day
+      )
+    );
+  };
+
+  const setTaskDescription = (dayIndex: number, taskIndex: number, description: string) => {
+    setDays((currentDays) =>
+      currentDays.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              tasks: day.tasks.map((task, currentTaskIndex) =>
+                currentTaskIndex === taskIndex
+                  ? {
+                      ...task,
+                      description,
                     }
                   : task
               ),
@@ -578,7 +582,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     dragRef.current.moved = false;
     setDragging(true);
     try {
-      (e.target as Element).setPointerCapture?.(e.pointerId as any);
+      (e.target as Element).setPointerCapture?.(e.pointerId);
     } catch {}
   };
 
@@ -595,7 +599,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     dragRef.current.isDown = false;
     setDragging(false);
     try {
-      (e.target as Element).releasePointerCapture?.(e.pointerId as any);
+      (e.target as Element).releasePointerCapture?.(e.pointerId);
     } catch {}
   };
 
@@ -705,10 +709,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             // lookup order: prop (long), prop (short), local colors (long), local colors (short)
             const dayColor =
               dayColors?.[weekdayLong] ?? dayColors?.[weekdayShort] ?? themeColors[weekdayLong] ?? themeColors[weekdayShort];
-            const isLast = index === days.length - 1;
             const applyColor = Boolean(dayColor);
-            const buttonTextColor = applyColor ? "#000" : undefined;
-            const buttonBgColor = dayColor ? hexToRgba(dayColor, 0.9) : undefined;
             const isToday = index === CENTER_INDEX;
             const todayDateClasses = isToday
               ? "inline-flex flex-col rounded-2xl border-2 px-3 py-2 shadow-sm"
@@ -1296,9 +1297,16 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                     <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       Description
                     </p>
-                    <p className={`mt-1 text-sm leading-relaxed ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                      {activeTask?.description?.trim() ? activeTask.description : "No description added yet."}
-                    </p>
+                    <textarea
+                      value={activeTask?.description ?? ""}
+                      onChange={(e) => {
+                        if (!expandedTask) return;
+                        setTaskDescription(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
+                      }}
+                      placeholder="Write a description..."
+                      rows={5}
+                      className={`mt-2 w-full rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-relaxed outline-none transition resize-none placeholder:text-slate-400 focus:resize-y ${darkMode ? "text-slate-100 focus:border-[#7d6ba6] focus:bg-[#2f2640]" : "text-slate-900 focus:border-slate-500 focus:bg-white"}`}
+                    />
                   </div>
                 </div>
               </div>
