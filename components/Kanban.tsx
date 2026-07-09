@@ -192,6 +192,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [darkMode, setDarkMode] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const themeColors = darkMode ? darkColors : lightColors;
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
@@ -606,6 +607,66 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const activeTask = expandedTask
     ? days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex] ?? null
     : null;
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const isSearching = normalizedSearchQuery.length > 0;
+
+  const taskMatchesSearch = (task: Task, day: DayColumn) => {
+    if (!normalizedSearchQuery) return true;
+
+    const searchableParts = [
+      task.title,
+      task.description,
+      task.tag,
+      task.dueDate,
+      formatDueDateDisplay(task.dueDate),
+      task.priority,
+      task.completed ? "completed" : "not completed",
+      day.label,
+      formatWeekdayLong(day.date),
+      formatWeekdayShort(day.date),
+      formatMonthDay(day.date),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return searchableParts.includes(normalizedSearchQuery);
+  };
+
+  const searchResults = isSearching
+    ? days.flatMap((day, dayIndex) =>
+        day.tasks
+          .map((task, taskIndex) => ({ day, dayIndex, task, taskIndex }))
+          .filter(({ task }) => taskMatchesSearch(task, day))
+      )
+    : [];
+
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const renderHighlightedText = (value?: string, fallback = "-") => {
+    const trimmedValue = value?.trim();
+    const text = trimmedValue && trimmedValue.length > 0 ? trimmedValue : fallback;
+
+    if (!normalizedSearchQuery || text === fallback) {
+      return text;
+    }
+
+    const pattern = new RegExp(`(${escapeRegExp(normalizedSearchQuery)})`, "ig");
+    const parts = text.split(pattern);
+
+    return parts.map((part, index) =>
+      part.toLowerCase() === normalizedSearchQuery ? (
+        <mark
+          key={`search-highlight-${index}-${part}`}
+          className={`rounded px-0.5 ${darkMode ? "bg-amber-300/60 text-slate-900" : "bg-amber-200 text-slate-900"}`}
+        >
+          {part}
+        </mark>
+      ) : (
+        <span key={`search-text-${index}-${part}`}>{part}</span>
+      )
+    );
+  };
 
   // Ensure today is positioned at the left edge on initial mount
   useEffect(() => {
@@ -620,13 +681,77 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     <div className="space-y-6">
       <header className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-3 py-2 shadow-sm transition ${darkMode ? "border-[#372a5d] bg-[#171021] shadow-[#241b35]/30" : "border-slate-200 bg-white shadow-slate-200/50"}`}>
         <div className="flex flex-1 min-w-0 items-center gap-3">
-          <label htmlFor="kanban-search" className="sr-only">Search</label>
-          <input
-            id="kanban-search"
-            type="search"
-            placeholder="Search..."
-            className={`w-[20rem] rounded-2xl border px-4 py-2 text-sm outline-none transition focus:border-slate-900 focus:ring-2 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 focus:border-[#7d6ba6] focus:ring-[#372a5d]" : "border-slate-200 bg-slate-50 text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
-          />
+          <div className="relative w-[20rem]">
+            <label htmlFor="kanban-search" className="sr-only">Search</label>
+            <input
+              id="kanban-search"
+              type="search"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-full rounded-2xl border px-4 py-2 text-sm outline-none transition focus:border-slate-900 focus:ring-2 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 focus:border-[#7d6ba6] focus:ring-[#372a5d]" : "border-slate-200 bg-slate-50 text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
+            />
+
+            {isSearching ? (
+              <div className={`absolute left-0 top-[calc(100%+0.45rem)] z-[80] w-[min(72rem,95vw)] rounded-xl border p-3 shadow-xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Results
+                  </p>
+                  <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                    {searchResults.length} match{searchResults.length === 1 ? "" : "es"}
+                  </p>
+                </div>
+
+                {searchResults.length === 0 ? (
+                  <div className={`rounded-lg border border-dashed px-3 py-4 text-sm ${darkMode ? "border-slate-600 text-slate-300" : "border-slate-300 text-slate-600"}`}>
+                    No tasks matched this query.
+                  </div>
+                ) : (
+                  <div className={`max-h-[24rem] overflow-auto rounded-lg border ${darkMode ? "border-[#372a5d]" : "border-slate-200"}`}>
+                    <table className="min-w-full text-left text-sm">
+                      <thead className={darkMode ? "bg-[#2f2640] text-slate-200" : "bg-slate-100 text-slate-700"}>
+                        <tr>
+                          <th className="px-3 py-2 font-semibold">Title</th>
+                          <th className="px-3 py-2 font-semibold">Label</th>
+                          <th className="px-3 py-2 font-semibold">Priority</th>
+                          <th className="px-3 py-2 font-semibold">Due date</th>
+                          <th className="px-3 py-2 font-semibold">Day</th>
+                          <th className="px-3 py-2 font-semibold">Status</th>
+                          <th className="px-3 py-2 font-semibold">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {searchResults.map((result) => {
+                          const dueDateDisplay = result.task.dueDate?.trim()
+                            ? formatDueDateDisplay(result.task.dueDate)
+                            : "Not set";
+
+                          return (
+                            <tr
+                              key={`search-result-${result.dayIndex}-${result.taskIndex}`}
+                              onClick={() => {
+                                openExpandedTask(result.dayIndex, result.taskIndex);
+                              }}
+                              className={`cursor-pointer border-t transition ${darkMode ? "border-[#372a5d] hover:bg-[#2a2142]" : "border-slate-200 hover:bg-slate-50"}`}
+                            >
+                              <td className="px-3 py-2 font-medium">{renderHighlightedText(result.task.title)}</td>
+                              <td className="px-3 py-2">{renderHighlightedText(result.task.tag)}</td>
+                              <td className="px-3 py-2">{renderHighlightedText(result.task.priority ?? "Not set")}</td>
+                              <td className="px-3 py-2">{renderHighlightedText(dueDateDisplay)}</td>
+                              <td className="px-3 py-2">{renderHighlightedText(result.day.label)}</td>
+                              <td className="px-3 py-2">{renderHighlightedText(result.task.completed ? "Completed" : "Open")}</td>
+                              <td className="px-3 py-2">{renderHighlightedText(result.task.description)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={goToday}
@@ -710,6 +835,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
             const dayColor =
               dayColors?.[weekdayLong] ?? dayColors?.[weekdayShort] ?? themeColors[weekdayLong] ?? themeColors[weekdayShort];
             const applyColor = Boolean(dayColor);
+            const visibleTaskEntries = day.tasks
+              .map((task, taskIndex) => ({ task, taskIndex }))
+              .filter(({ task }) => taskMatchesSearch(task, day));
             const isToday = index === CENTER_INDEX;
             const todayDateClasses = isToday
               ? "inline-flex flex-col rounded-2xl border-2 px-3 py-2 shadow-sm"
@@ -783,20 +911,20 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                   </div>
                 </div>
                 <div className="space-y-1">
-                  {day.tasks.map((task, taskIndex) => {
+                  {visibleTaskEntries.map(({ task, taskIndex }) => {
                     const isEditing =
                       editingTask?.dayIndex === index && editingTask?.taskIndex === taskIndex;
                     const isHovered = hoveredTask?.dayIndex === index && hoveredTask?.taskIndex === taskIndex;
                     const taskColor = task.tagColor;
                     return (
                       <div key={`${task.title}-${taskIndex}`}>
-                        {dropTarget?.dayIndex === index && dropTarget.insertIndex === taskIndex ? (
+                        {!isSearching && dropTarget?.dayIndex === index && dropTarget.insertIndex === taskIndex ? (
                           <div
                             className={`mb-1 h-1 rounded-full ${darkMode ? 'bg-slate-300/45' : 'bg-slate-500/35'}`}
                           />
                         ) : null}
                         <div
-                          draggable
+                          draggable={!isSearching}
                           onDragStart={(e) => handleDragStart(index, taskIndex, e)}
                           onDragEnd={handleDragEnd}
                           onDragOver={(e) => handleTaskDragOver(index, taskIndex, e)}
@@ -906,19 +1034,26 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                       </div>
                     );
                   })}
-                  <div
-                    onDragOver={(e) => handleListDragOver(index, day.tasks.length, e)}
-                    onDrop={(e) => handleDrop(index, day.tasks.length, e)}
-                    className={`mt-1 rounded-lg transition ${day.tasks.length === 0 ? 'min-h-8' : 'min-h-3'}`}
-                  >
-                    {dropTarget?.dayIndex === index && dropTarget.insertIndex === day.tasks.length ? (
-                      <div className={`h-1 rounded-full ${darkMode ? 'bg-slate-300/45' : 'bg-slate-500/35'}`} />
-                    ) : day.tasks.length === 0 ? (
-                      <div className={`rounded-lg border border-dashed px-3 py-2 text-xs ${darkMode ? 'border-slate-600 text-slate-400' : 'border-slate-300 text-slate-500'}`}>
-                        Drag a task here
-                      </div>
-                    ) : null}
-                  </div>
+                  {isSearching && visibleTaskEntries.length === 0 ? (
+                    <div className={`rounded-lg border border-dashed px-3 py-2 text-xs ${darkMode ? 'border-slate-600 text-slate-400' : 'border-slate-300 text-slate-500'}`}>
+                      No matching tasks
+                    </div>
+                  ) : null}
+                  {!isSearching ? (
+                    <div
+                      onDragOver={(e) => handleListDragOver(index, day.tasks.length, e)}
+                      onDrop={(e) => handleDrop(index, day.tasks.length, e)}
+                      className={`mt-1 rounded-lg transition ${day.tasks.length === 0 ? 'min-h-8' : 'min-h-3'}`}
+                    >
+                      {dropTarget?.dayIndex === index && dropTarget.insertIndex === day.tasks.length ? (
+                        <div className={`h-1 rounded-full ${darkMode ? 'bg-slate-300/45' : 'bg-slate-500/35'}`} />
+                      ) : day.tasks.length === 0 ? (
+                        <div className={`rounded-lg border border-dashed px-3 py-2 text-xs ${darkMode ? 'border-slate-600 text-slate-400' : 'border-slate-300 text-slate-500'}`}>
+                          Drag a task here
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 {contextMenu?.dayIndex === index ? (
