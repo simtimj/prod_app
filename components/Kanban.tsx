@@ -18,6 +18,12 @@ type DayColumn = {
   tasks: Task[];
 };
 
+type DeletedTaskSnapshot = {
+  dayIndex: number;
+  taskIndex: number;
+  task: Task;
+};
+
 const lightColors: Record<string, string> = {
   "Sunday": "#f5d000",
   "Monday": "#9ca3af",
@@ -194,6 +200,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [recentlyDeletedTask, setRecentlyDeletedTask] = useState<DeletedTaskSnapshot | null>(null);
   const themeColors = darkMode ? darkColors : lightColors;
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
@@ -217,6 +224,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const searchPanelRef = useRef<HTMLDivElement | null>(null);
+  const deleteUndoRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
 
@@ -288,6 +296,32 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       document.removeEventListener("mousedown", handleClickOutsideSearch);
     };
   }, []);
+
+  useEffect(() => {
+    if (!recentlyDeletedTask) return;
+
+    const closeDeleteUndoOnAction = (event: MouseEvent | KeyboardEvent | WheelEvent | TouchEvent) => {
+      if (
+        deleteUndoRef.current &&
+        deleteUndoRef.current.contains(event.target as Node)
+      ) {
+        return;
+      }
+      setRecentlyDeletedTask(null);
+    };
+
+    document.addEventListener("mousedown", closeDeleteUndoOnAction);
+    document.addEventListener("keydown", closeDeleteUndoOnAction);
+    document.addEventListener("wheel", closeDeleteUndoOnAction);
+    document.addEventListener("touchstart", closeDeleteUndoOnAction);
+
+    return () => {
+      document.removeEventListener("mousedown", closeDeleteUndoOnAction);
+      document.removeEventListener("keydown", closeDeleteUndoOnAction);
+      document.removeEventListener("wheel", closeDeleteUndoOnAction);
+      document.removeEventListener("touchstart", closeDeleteUndoOnAction);
+    };
+  }, [recentlyDeletedTask]);
 
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
@@ -415,6 +449,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   };
 
   const deleteTask = (dayIndex: number, taskIndex: number) => {
+    const removedTask = days[dayIndex]?.tasks?.[taskIndex];
+    if (!removedTask) return;
+
     setDays((currentDays) =>
       currentDays.map((day, currentDayIndex) =>
         currentDayIndex === dayIndex
@@ -425,6 +462,13 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
           : day
       )
     );
+
+    setRecentlyDeletedTask({
+      dayIndex,
+      taskIndex,
+      task: removedTask,
+    });
+
     setContextMenu(null);
     if (editingTask?.dayIndex === dayIndex && editingTask?.taskIndex === taskIndex) {
       setEditingTask(null);
@@ -625,6 +669,28 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const activeTask = expandedTask
     ? days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex] ?? null
     : null;
+
+  const undoDeleteTask = () => {
+    if (!recentlyDeletedTask) return;
+
+    const snapshot = recentlyDeletedTask;
+    setDays((currentDays) =>
+      currentDays.map((day, currentDayIndex) => {
+        if (currentDayIndex !== snapshot.dayIndex) return day;
+
+        const nextTasks = [...day.tasks];
+        const insertIndex = Math.max(0, Math.min(snapshot.taskIndex, nextTasks.length));
+        nextTasks.splice(insertIndex, 0, snapshot.task);
+
+        return {
+          ...day,
+          tasks: nextTasks,
+        };
+      })
+    );
+
+    setRecentlyDeletedTask(null);
+  };
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const isSearching = normalizedSearchQuery.length > 0;
 
@@ -1530,6 +1596,26 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 <option key={tag} value={tag} />
               ))}
             </datalist>
+        </div>
+      ) : null}
+
+      {recentlyDeletedTask ? (
+        <div
+          ref={deleteUndoRef}
+          className={`fixed bottom-4 left-1/2 z-[95] w-[min(92vw,34rem)] -translate-x-1/2 rounded-xl border px-4 py-3 shadow-xl ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <p className={`text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+              Task deleted: <span className="font-semibold">{recentlyDeletedTask.task.title}</span>
+            </p>
+            <button
+              type="button"
+              onClick={undoDeleteTask}
+              className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100"}`}
+            >
+              Undo
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
