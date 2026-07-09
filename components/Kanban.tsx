@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Task = {
   title: string;
@@ -18,10 +18,19 @@ type DayColumn = {
   tasks: Task[];
 };
 
-type DeletedTaskSnapshot = {
+type ArchivedTaskSnapshot = {
   dayIndex: number;
   taskIndex: number;
   task: Task;
+  dayLabel: string;
+  archivedId: string;
+};
+
+type ArchivedTaskEntry = {
+  id: string;
+  task: Task;
+  dayLabel: string;
+  archivedAt: string;
 };
 
 const lightColors: Record<string, string> = {
@@ -198,9 +207,11 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [darkMode, setDarkMode] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [archivePanelOpen, setArchivePanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
-  const [recentlyDeletedTask, setRecentlyDeletedTask] = useState<DeletedTaskSnapshot | null>(null);
+  const [recentlyArchivedTask, setRecentlyArchivedTask] = useState<ArchivedTaskSnapshot | null>(null);
+  const [archivedTasks, setArchivedTasks] = useState<ArchivedTaskEntry[]>([]);
   const themeColors = darkMode ? darkColors : lightColors;
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
@@ -224,7 +235,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const searchPanelRef = useRef<HTMLDivElement | null>(null);
-  const deleteUndoRef = useRef<HTMLDivElement | null>(null);
+  const archiveUndoRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
 
@@ -298,30 +309,38 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   }, []);
 
   useEffect(() => {
-    if (!recentlyDeletedTask) return;
+    if (!recentlyArchivedTask) return;
 
-    const closeDeleteUndoOnAction = (event: MouseEvent | KeyboardEvent | WheelEvent | TouchEvent) => {
+    const closeArchiveUndoOnAction = (event: MouseEvent | KeyboardEvent | WheelEvent | TouchEvent) => {
       if (
-        deleteUndoRef.current &&
-        deleteUndoRef.current.contains(event.target as Node)
+        "key" in event &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "c"
       ) {
         return;
       }
-      setRecentlyDeletedTask(null);
+
+      if (
+        archiveUndoRef.current &&
+        archiveUndoRef.current.contains(event.target as Node)
+      ) {
+        return;
+      }
+      setRecentlyArchivedTask(null);
     };
 
-    document.addEventListener("mousedown", closeDeleteUndoOnAction);
-    document.addEventListener("keydown", closeDeleteUndoOnAction);
-    document.addEventListener("wheel", closeDeleteUndoOnAction);
-    document.addEventListener("touchstart", closeDeleteUndoOnAction);
+    document.addEventListener("mousedown", closeArchiveUndoOnAction);
+    document.addEventListener("keydown", closeArchiveUndoOnAction);
+    document.addEventListener("wheel", closeArchiveUndoOnAction);
+    document.addEventListener("touchstart", closeArchiveUndoOnAction);
 
     return () => {
-      document.removeEventListener("mousedown", closeDeleteUndoOnAction);
-      document.removeEventListener("keydown", closeDeleteUndoOnAction);
-      document.removeEventListener("wheel", closeDeleteUndoOnAction);
-      document.removeEventListener("touchstart", closeDeleteUndoOnAction);
+      document.removeEventListener("mousedown", closeArchiveUndoOnAction);
+      document.removeEventListener("keydown", closeArchiveUndoOnAction);
+      document.removeEventListener("wheel", closeArchiveUndoOnAction);
+      document.removeEventListener("touchstart", closeArchiveUndoOnAction);
     };
-  }, [recentlyDeletedTask]);
+  }, [recentlyArchivedTask]);
 
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
@@ -448,8 +467,9 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     setEditTaskInput("");
   };
 
-  const deleteTask = (dayIndex: number, taskIndex: number) => {
+  const archiveTask = (dayIndex: number, taskIndex: number) => {
     const removedTask = days[dayIndex]?.tasks?.[taskIndex];
+    const dayLabel = days[dayIndex]?.label;
     if (!removedTask) return;
 
     setDays((currentDays) =>
@@ -463,10 +483,24 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       )
     );
 
-    setRecentlyDeletedTask({
+    const archivedAt = new Date().toISOString();
+    const archivedId = `${archivedAt}-${dayIndex}-${taskIndex}`;
+    setArchivedTasks((currentArchived) => [
+      {
+        id: archivedId,
+        task: removedTask,
+        dayLabel: dayLabel ?? "Unknown day",
+        archivedAt,
+      },
+      ...currentArchived,
+    ]);
+
+    setRecentlyArchivedTask({
       dayIndex,
       taskIndex,
       task: removedTask,
+      dayLabel: dayLabel ?? "Unknown day",
+      archivedId,
     });
 
     setContextMenu(null);
@@ -670,10 +704,10 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     ? days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex] ?? null
     : null;
 
-  const undoDeleteTask = () => {
-    if (!recentlyDeletedTask) return;
+  const undoArchiveTask = useCallback(() => {
+    if (!recentlyArchivedTask) return;
 
-    const snapshot = recentlyDeletedTask;
+    const snapshot = recentlyArchivedTask;
     setDays((currentDays) =>
       currentDays.map((day, currentDayIndex) => {
         if (currentDayIndex !== snapshot.dayIndex) return day;
@@ -689,8 +723,28 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       })
     );
 
-    setRecentlyDeletedTask(null);
-  };
+    setArchivedTasks((currentArchived) =>
+      currentArchived.filter((entry) => entry.id !== snapshot.archivedId)
+    );
+
+    setRecentlyArchivedTask(null);
+  }, [recentlyArchivedTask]);
+
+  useEffect(() => {
+    if (!recentlyArchivedTask) return;
+
+    const handleUndoShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        undoArchiveTask();
+      }
+    };
+
+    document.addEventListener("keydown", handleUndoShortcut);
+    return () => {
+      document.removeEventListener("keydown", handleUndoShortcut);
+    };
+  }, [recentlyArchivedTask, undoArchiveTask]);
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const isSearching = normalizedSearchQuery.length > 0;
 
@@ -903,7 +957,16 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                 className={`absolute right-0 mt-2 w-40 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
                 style={{ borderTopRightRadius: 0 }}
               >
-                Test text
+                <button
+                  type="button"
+                  onClick={() => {
+                    setArchivePanelOpen(true);
+                    setOptionsOpen(false);
+                  }}
+                  className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+                >
+                  Archive ({archivedTasks.length})
+                </button>
               </div>
             ) : null}
           </div>
@@ -1208,11 +1271,11 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteTask(contextMenu.dayIndex, contextMenu.taskIndex);
+                          archiveTask(contextMenu.dayIndex, contextMenu.taskIndex);
                         }}
                         className={`w-full px-3 py-2 text-sm font-medium text-left transition ${darkMode ? 'bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
                       >
-                        Delete
+                        Archive
                       </button>
                       </div>
 
@@ -1599,18 +1662,95 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
         </div>
       ) : null}
 
-      {recentlyDeletedTask ? (
+      {archivePanelOpen ? (
         <div
-          ref={deleteUndoRef}
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setArchivePanelOpen(false)}
+        >
+          <div
+            className={`w-full max-w-4xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  Archived Tasks
+                </p>
+                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  {archivedTasks.length} archived task{archivedTasks.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setArchivePanelOpen(false)}
+                className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+              >
+                Close
+              </button>
+            </div>
+
+            {archivedTasks.length === 0 ? (
+              <div className={`mt-4 rounded-lg border border-dashed px-4 py-6 text-sm ${darkMode ? "border-slate-600 text-slate-300" : "border-slate-300 text-slate-600"}`}>
+                No archived tasks yet.
+              </div>
+            ) : (
+              <div className="mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
+                {archivedTasks.map((entry) => (
+                  <article
+                    key={entry.id}
+                    className={`rounded-xl border p-3 ${darkMode ? "border-[#3f3361] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                          {entry.task.title}
+                        </h3>
+                        <p className={`mt-1 text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                          From {entry.dayLabel}
+                        </p>
+                      </div>
+                      <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                        {new Date(entry.archivedAt).toLocaleString()}
+                      </p>
+                    </div>
+
+                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                      <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                        Tag: <span className="font-medium">{entry.task.tag?.trim() || "-"}</span>
+                      </p>
+                      <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                        Priority: <span className="font-medium">{entry.task.priority ?? "Not set"}</span>
+                      </p>
+                      <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                        Due: <span className="font-medium">{entry.task.dueDate?.trim() ? formatDueDateDisplay(entry.task.dueDate) : "Not set"}</span>
+                      </p>
+                    </div>
+
+                    {entry.task.description?.trim() ? (
+                      <p className={`mt-2 text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                        {entry.task.description}
+                      </p>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {recentlyArchivedTask ? (
+        <div
+          ref={archiveUndoRef}
           className={`fixed bottom-4 left-1/2 z-[95] w-[min(92vw,34rem)] -translate-x-1/2 rounded-xl border px-4 py-3 shadow-xl ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
         >
           <div className="flex items-center justify-between gap-3">
             <p className={`text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-              Task deleted: <span className="font-semibold">{recentlyDeletedTask.task.title}</span>
+              Task archived: <span className="font-semibold">{recentlyArchivedTask.task.title}</span>
             </p>
             <button
               type="button"
-              onClick={undoDeleteTask}
+              onClick={undoArchiveTask}
               className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100"}`}
             >
               Undo
