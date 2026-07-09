@@ -193,6 +193,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const themeColors = darkMode ? darkColors : lightColors;
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
@@ -215,6 +216,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const searchPanelRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
 
@@ -270,6 +272,22 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    const handleClickOutsideSearch = (event: MouseEvent) => {
+      if (
+        searchPanelRef.current &&
+        !searchPanelRef.current.contains(event.target as Node)
+      ) {
+        setSearchPanelOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutsideSearch);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutsideSearch);
+    };
+  }, []);
 
   const scrollDayToStart = (index: number, smooth = true) => {
     if (!scrollRef.current || !dayRefs.current[index]) return;
@@ -681,18 +699,27 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
     <div className="space-y-6">
       <header className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-3 py-2 shadow-sm transition ${darkMode ? "border-[#372a5d] bg-[#171021] shadow-[#241b35]/30" : "border-slate-200 bg-white shadow-slate-200/50"}`}>
         <div className="flex flex-1 min-w-0 items-center gap-3">
-          <div className="relative w-[20rem]">
+          <div ref={searchPanelRef} className="relative w-[20rem]">
             <label htmlFor="kanban-search" className="sr-only">Search</label>
             <input
               id="kanban-search"
               type="search"
               placeholder="Search..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setSearchPanelOpen(true)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSearchPanelOpen(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchPanelOpen(false);
+                }
+              }}
               className={`w-full rounded-2xl border px-4 py-2 text-sm outline-none transition focus:border-slate-900 focus:ring-2 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 focus:border-[#7d6ba6] focus:ring-[#372a5d]" : "border-slate-200 bg-slate-50 text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
             />
 
-            {isSearching ? (
+            {isSearching && searchPanelOpen ? (
               <div className={`absolute left-0 top-[calc(100%+0.45rem)] z-[80] w-[min(72rem,95vw)] rounded-xl border p-3 shadow-xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
@@ -731,6 +758,7 @@ export default function Kanban({ dayColors }: { dayColors?: Record<string, strin
                             <tr
                               key={`search-result-${result.dayIndex}-${result.taskIndex}`}
                               onClick={() => {
+                                setSearchPanelOpen(false);
                                 openExpandedTask(result.dayIndex, result.taskIndex);
                               }}
                               className={`cursor-pointer border-t transition ${darkMode ? "border-[#372a5d] hover:bg-[#2a2142]" : "border-slate-200 hover:bg-slate-50"}`}
