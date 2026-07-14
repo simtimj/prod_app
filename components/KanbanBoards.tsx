@@ -1124,9 +1124,3 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   );
 }
 
-
-
-
-
-
-
