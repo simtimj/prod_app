@@ -117,46 +117,13 @@ export function formatDueDateDisplay(dateValue?: string) {
 }
 
 export function buildDayColumns(today: Date): DayColumn[] {
-  const samples: Task[][] = [
-    [
-      { title: "Capture ideas for the week", completed: false },
-      { title: "Check email summaries", completed: false },
-    ],
-    [
-      { title: "Review today's calendar", completed: true },
-      { title: "Draft meeting notes", completed: false },
-      { title: "Add priorities to workboard", completed: false },
-    ],
-    [
-      { title: "Plan sprint goals", completed: false },
-      { title: "Update task statuses", completed: false },
-    ],
-    [
-      { title: "Focus on current day", completed: false },
-      { title: "Complete two quick wins", completed: false },
-      { title: "Sync with the team", completed: false },
-    ],
-    [
-      { title: "Prepare tomorrow's agenda", completed: false },
-      { title: "Review blockers", completed: false },
-    ],
-    [
-      { title: "Reflect on the week", completed: false },
-      { title: "Archive done items", completed: true },
-    ],
-    [
-      { title: "Clear small tasks", completed: false },
-      { title: "Organize backlog", completed: false },
-    ],
-  ];
-
   return Array.from({ length: DAY_COUNT }, (_, index) => {
     const offset = index - CENTER_INDEX;
     const date = addDays(today, offset);
     return {
       date,
       label: `${formatWeekdayLong(date)} · ${formatMonthDay(date)}`,
-      tasks: samples[index % samples.length],
+      tasks: [],
     };
   });
 }

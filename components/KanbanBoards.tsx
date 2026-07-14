@@ -60,6 +60,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
@@ -201,6 +202,26 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setAuthSuccess("");
   };
 
+  const handleImmediateSignOut = async () => {
+    if (authLoading) return;
+
+    setOptionsOpen(false);
+    setAuthError("");
+    setAuthSuccess("");
+    setAuthLoading(true);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setAuthNotice("Logged out.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Sign out failed.";
+      setAuthNotice(`Sign out failed: ${message}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleAuthSubmit = async () => {
     if (!authAction || authLoading) return;
 
@@ -240,6 +261,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setAuthLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!authNotice) return;
+
+    const timer = window.setTimeout(() => {
+      setAuthNotice(null);
+    }, 2200);
+
+    return () => window.clearTimeout(timer);
+  }, [authNotice]);
 
   const addTaskToList = (index: number, title: string) => {
     if (!title.trim()) return;
@@ -798,7 +829,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           </button>
           <button
             type="button"
-            onClick={() => openAuthDialog("signout")}
+            onClick={handleImmediateSignOut}
             className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
           >
             Sign Out
@@ -821,9 +852,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const renderAuthDialog = () => {
     if (!authAction) return null;
 
-    const actionLabel = authAction === "signup" ? "Sign Up" : authAction === "signin" ? "Sign In" : "Sign Out";
+    const actionLabel = authAction === "signup" ? "Sign Up" : "Sign In";
     const submitLabel = authLoading ? "Working..." : actionLabel;
-    const requiresCredentials = authAction !== "signout";
 
     return (
       <div
@@ -869,12 +899,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               />
             </label>
 
-            {!requiresCredentials ? (
-              <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                Sign out does not require credentials, but the popup keeps the same auth form layout.
-              </p>
-            ) : null}
-
             {authError ? (
               <p className={`rounded-md border px-3 py-2 text-sm ${darkMode ? "border-red-500/50 bg-red-500/10 text-red-200" : "border-red-200 bg-red-50 text-red-700"}`}>
                 {authError}
@@ -896,6 +920,30 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               {submitLabel}
             </button>
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAuthNotice = () => {
+    if (!authNotice) return null;
+
+    const isError = authNotice.toLowerCase().startsWith("sign out failed");
+
+    return (
+      <div className="fixed inset-0 z-[92] flex items-center justify-center p-4 pointer-events-none">
+        <div
+          className={`pointer-events-auto rounded-xl border px-4 py-3 text-sm shadow-xl ${
+            isError
+              ? darkMode
+                ? "border-red-500/50 bg-[#2a1a22] text-red-200"
+                : "border-red-200 bg-red-50 text-red-700"
+              : darkMode
+                ? "border-emerald-500/50 bg-[#15251f] text-emerald-200"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          {authNotice}
         </div>
       </div>
     );
@@ -1298,6 +1346,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       </section>
       {renderExpandedTaskModal()}
       {renderAuthDialog()}
+      {renderAuthNotice()}
       {renderArchivePanel()}
       {renderArchiveUndoToast()}
     </div>

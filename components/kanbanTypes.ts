@@ -1,4 +1,6 @@
 export type Task = {
+  id?: string;
+  userId?: string;
   title: string;
   completed?: boolean;
   tag?: string;
@@ -6,6 +8,8 @@ export type Task = {
   description?: string;
   dueDate?: string;
   priority?: "Low" | "Medium" | "High";
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type DayColumn = {
@@ -15,6 +19,8 @@ export type DayColumn = {
 };
 
 export type ArchivedTaskSnapshot = {
+  taskId?: string;
+  userId?: string;
   dayIndex: number;
   taskIndex: number;
   task: Task;
@@ -24,6 +30,8 @@ export type ArchivedTaskSnapshot = {
 
 export type ArchivedTaskEntry = {
   id: string;
+  taskId?: string;
+  userId?: string;
   task: Task;
   dayLabel: string;
   archivedAt: string;
