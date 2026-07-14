@@ -702,9 +702,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const renderViewsDropdown = () => {
+    if (!viewsOpen) return null;
+    return (
+      <div
+        className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+      >
+        View options placeholder
+      </div>
+    );
+  };
 
+  const renderOptionsDropdown = () => {
     const handleSignUp = async () => {
-      console.log("11111111")
       const { data, error } = await supabase.auth.signUp({
         email: "juliussimtim@gmail.com",
         password: "Apple477!?",
@@ -713,25 +722,49 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       console.log({ data, error });
     };
 
-    if (!viewsOpen) return null;
-    return (
-      <div
-        className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-      >
-        <button onClick={handleSignUp}>
-          Test Sign Up
-        </button>
-      </div>
-    );
-  };
+    const handleSignIn = async () => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: "juliussimtim@gmail.com",
+        password: "Apple477!?",
+      });
 
-  const renderOptionsDropdown = () => {
+      console.log({ data, error });
+    };
+
+    const handleSignOut = async () => {
+      const { error } = await supabase.auth.signOut();
+      console.log({ error });
+    };
+
     if (!optionsOpen) return null;
     return (
       <div
-        className={`absolute right-0 mt-2 w-40 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+        className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
         style={{ borderTopRightRadius: 0 }}
       >
+        <div className="mb-2 grid gap-1">
+          <button
+            type="button"
+            onClick={handleSignUp}
+            className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+          >
+            Sign Up
+          </button>
+          <button
+            type="button"
+            onClick={handleSignIn}
+            className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+          >
+            Sign Out
+          </button>
+        </div>
         <button
           type="button"
           onClick={() => {
