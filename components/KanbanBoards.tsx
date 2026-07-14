@@ -635,6 +635,407 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     });
   }, []);
 
+  const renderSearchResultsPanel = () => {
+    if (!isSearching || !searchPanelOpen) return null;
+
+    return (
+      <div className={`absolute left-0 top-[calc(100%+0.45rem)] z-[80] w-[min(72rem,95vw)] rounded-xl border p-3 shadow-xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+            Results
+          </p>
+          <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+            {searchResults.length} match{searchResults.length === 1 ? "" : "es"}
+          </p>
+        </div>
+
+        {searchResults.length === 0 ? (
+          <div className={`rounded-lg border border-dashed px-3 py-4 text-sm ${darkMode ? "border-slate-600 text-slate-300" : "border-slate-300 text-slate-600"}`}>
+            No tasks matched this query.
+          </div>
+        ) : (
+          <div className={`max-h-[24rem] overflow-auto rounded-lg border ${darkMode ? "border-[#372a5d]" : "border-slate-200"}`}>
+            <table className="min-w-full text-left text-sm">
+              <thead className={darkMode ? "bg-[#2f2640] text-slate-200" : "bg-slate-100 text-slate-700"}>
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Title</th>
+                  <th className="px-3 py-2 font-semibold">Label</th>
+                  <th className="px-3 py-2 font-semibold">Priority</th>
+                  <th className="px-3 py-2 font-semibold">Due date</th>
+                  <th className="px-3 py-2 font-semibold">Day</th>
+                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {searchResults.map((result) => {
+                  const dueDateDisplay = result.task.dueDate?.trim()
+                    ? formatDueDateDisplay(result.task.dueDate)
+                    : "Not set";
+
+                  return (
+                    <tr
+                      key={`search-result-${result.dayIndex}-${result.taskIndex}`}
+                      onClick={() => {
+                        setSearchPanelOpen(false);
+                        openExpandedTask(result.dayIndex, result.taskIndex);
+                      }}
+                      className={`cursor-pointer border-t transition ${darkMode ? "border-[#372a5d] hover:bg-[#2a2142]" : "border-slate-200 hover:bg-slate-50"}`}
+                    >
+                      <td className="px-3 py-2 font-medium">{renderHighlightedText(result.task.title)}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(result.task.tag)}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(result.task.priority ?? "Not set")}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(dueDateDisplay)}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(result.day.label)}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(result.task.completed ? "Completed" : "Open")}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(result.task.description)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderViewsDropdown = () => {
+    if (!viewsOpen) return null;
+    return (
+      <div
+        className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+      >
+        View options placeholder
+      </div>
+    );
+  };
+
+  const renderOptionsDropdown = () => {
+    if (!optionsOpen) return null;
+    return (
+      <div
+        className={`absolute right-0 mt-2 w-40 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+        style={{ borderTopRightRadius: 0 }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setArchivePanelOpen(true);
+            setOptionsOpen(false);
+          }}
+          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+        >
+          Archive
+        </button>
+      </div>
+    );
+  };
+
+  const renderColumns = () =>
+    days.map((day, index) => {
+      const visibleTaskEntries = day.tasks
+        .map((task, taskIndex) => ({ task, taskIndex }))
+        .filter(({ task }) => taskMatchesSearch(task, day));
+
+      return (
+        <KanbanColumn
+          key={day.label}
+          day={day}
+          index={index}
+          totalDays={days.length}
+          centerIndex={CENTER_INDEX}
+          selectedIndex={selectedIndex}
+          darkMode={darkMode}
+          dayColors={dayColors}
+          themeColors={themeColors}
+          onSelectDay={(dayIndex) => {
+            if (dragRef.current.moved) {
+              dragRef.current.moved = false;
+              return;
+            }
+            ignoreScrollRef.current = true;
+            setSelectedIndex(dayIndex);
+          }}
+          setDayRef={(dayIndex, element) => {
+            dayRefs.current[dayIndex] = element;
+          }}
+          visibleTaskEntries={visibleTaskEntries}
+          isSearching={isSearching}
+          dropTarget={dropTarget}
+          editingTask={editingTask}
+          editTaskInput={editTaskInput}
+          setEditTaskInput={setEditTaskInput}
+          saveEditedTask={saveEditedTask}
+          cancelEditing={() => {
+            setEditingTask(null);
+            setEditTaskInput("");
+          }}
+          hoveredTask={hoveredTask}
+          setHoveredTask={setHoveredTask}
+          editInputRef={editInputRef}
+          onOpenExpandedTask={openExpandedTask}
+          onToggleTaskCompleted={toggleTaskCompleted}
+          onHandleDragStart={handleDragStart}
+          onHandleDragEnd={handleDragEnd}
+          onHandleTaskDragOver={handleTaskDragOver}
+          onHandleDrop={handleDrop}
+          onHandleListDragOver={handleListDragOver}
+          activeAddIndex={activeAddIndex}
+          newTaskInput={newTaskInput}
+          setNewTaskInput={setNewTaskInput}
+          setActiveAddIndex={setActiveAddIndex}
+          addInputRef={addInputRef}
+          onAddTaskToList={addTaskToList}
+          contextMenu={contextMenu}
+          contextMenuRef={contextMenuRef}
+          contextMenuMoveOpen={contextMenuMoveOpen}
+          setContextMenuMoveOpen={setContextMenuMoveOpen}
+          contextMenuTagOpen={contextMenuTagOpen}
+          setContextMenuTagOpen={setContextMenuTagOpen}
+          contextMenuSavedTagsOpen={contextMenuSavedTagsOpen}
+          setContextMenuSavedTagsOpen={setContextMenuSavedTagsOpen}
+          contextMenuDueDateOpen={contextMenuDueDateOpen}
+          setContextMenuDueDateOpen={setContextMenuDueDateOpen}
+          contextMenuTagInput={contextMenuTagInput}
+          setContextMenuTagInput={setContextMenuTagInput}
+          contextMenuTagColorInput={contextMenuTagColorInput}
+          setContextMenuTagColorInput={setContextMenuTagColorInput}
+          contextMenuDueDateInput={contextMenuDueDateInput}
+          setContextMenuDueDateInput={setContextMenuDueDateInput}
+          filteredContextMenuTagSuggestions={filteredContextMenuTagSuggestions}
+          setContextMenu={setContextMenu}
+          contextMenuDueDateInputRef={contextMenuDueDateInputRef}
+          onMoveTask={moveTask}
+          onSetTaskTag={setTaskTag}
+          onSetTaskDueDate={setTaskDueDate}
+          onArchiveTask={archiveTask}
+          days={days}
+        />
+      );
+    });
+
+  const renderExpandedTaskModal = () => {
+    if (!expandedTask) return null;
+    return (
+      <div
+        className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/40 p-4"
+        onClick={() => setExpandedTask(null)}
+      >
+        <div
+          className={`w-full max-w-2xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Task Detail
+              </p>
+              <h2 className="mt-1 text-xl font-semibold leading-tight">{activeTask?.title ?? "Untitled Task"}</h2>
+              <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                {formatWeekdayLong(days[expandedTask.dayIndex]?.date ?? new Date())} · {formatMonthDay(days[expandedTask.dayIndex]?.date ?? new Date())}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExpandedTask(null)}
+              className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+              <p className="text-sm font-semibold">Task Details</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Title</p>
+                  <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{activeTask?.title ?? "Untitled Task"}</p>
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due date</p>
+                  <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                    {activeTask?.dueDate?.trim() ? formatDueDateDisplay(activeTask.dueDate) : "Not set"}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Priority</p>
+                  <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{activeTask?.priority ?? "Not set"}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Description</p>
+                  <textarea
+                    value={activeTask?.description ?? ""}
+                    onChange={(e) => {
+                      if (!expandedTask) return;
+                      setTaskDescription(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
+                    }}
+                    placeholder="Write a description..."
+                    rows={5}
+                    className={`mt-2 w-full rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-relaxed outline-none transition resize-none placeholder:text-slate-400 focus:resize-y ${darkMode ? "text-slate-100 focus:border-[#7d6ba6] focus:bg-[#2f2640]" : "text-slate-900 focus:border-slate-500 focus:bg-white"}`}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+              <p className="text-sm font-semibold">Tag</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={expandedTagInput}
+                  onChange={(e) => setExpandedTagInput(e.target.value)}
+                  placeholder="coding, miscellaneous, etc"
+                  list={tagSuggestionsListId}
+                  autoComplete="off"
+                  className={`min-w-56 flex-1 rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                />
+                <div className="grid grid-cols-9 gap-1">
+                  {TAG_COLOR_OPTIONS.map((color) => {
+                    const active = expandedTagColorInput === color;
+                    return (
+                      <button
+                        key={`expanded-tag-color-${color}`}
+                        type="button"
+                        onClick={() => setExpandedTagColorInput(color)}
+                        className={`h-5 w-5 rounded-full border ${active ? 'ring-2 ring-slate-400' : ''}`}
+                        style={{ backgroundColor: color, borderColor: darkMode ? '#1f2937' : '#e2e8f0' }}
+                      />
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!expandedTask) return;
+                    setTaskTag(expandedTask.dayIndex, expandedTask.taskIndex, expandedTagInput, expandedTagColorInput);
+                  }}
+                  className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+                >
+                  Save Tag
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!expandedTask) return;
+                    setExpandedTagInput("");
+                    setExpandedTagColorInput("#22c55e");
+                    setTaskTag(expandedTask.dayIndex, expandedTask.taskIndex, "", "#22c55e");
+                  }}
+                  className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <datalist id={tagSuggestionsListId}>
+          {savedTagSuggestions.map((tag) => (
+            <option key={tag} value={tag} />
+          ))}
+        </datalist>
+      </div>
+    );
+  };
+
+  const renderArchivePanel = () => {
+    if (!archivePanelOpen) return null;
+
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
+        onClick={() => setArchivePanelOpen(false)}
+      >
+        <div
+          className={`w-full max-w-4xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Archived Tasks</p>
+              <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                {archivedTasks.length} archived task{archivedTasks.length === 1 ? "" : "s"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setArchivePanelOpen(false)}
+              className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Close
+            </button>
+          </div>
+
+          {archivedTasks.length === 0 ? (
+            <div className={`mt-4 rounded-lg border border-dashed px-4 py-6 text-sm ${darkMode ? "border-slate-600 text-slate-300" : "border-slate-300 text-slate-600"}`}>
+              No archived tasks yet.
+            </div>
+          ) : (
+            <div className="mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
+              {archivedTasks.map((entry) => (
+                <article
+                  key={entry.id}
+                  className={`rounded-xl border p-3 ${darkMode ? "border-[#3f3361] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{entry.task.title}</h3>
+                      <p className={`mt-1 text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>From {entry.dayLabel}</p>
+                    </div>
+                    <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      {new Date(entry.archivedAt).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                    <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                      Tag: <span className="font-medium">{entry.task.tag?.trim() || "-"}</span>
+                    </p>
+                    <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                      Priority: <span className="font-medium">{entry.task.priority ?? "Not set"}</span>
+                    </p>
+                    <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                      Due: <span className="font-medium">{entry.task.dueDate?.trim() ? formatDueDateDisplay(entry.task.dueDate) : "Not set"}</span>
+                    </p>
+                  </div>
+
+                  {entry.task.description?.trim() ? (
+                    <p className={`mt-2 text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>{entry.task.description}</p>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderArchiveUndoToast = () => {
+    if (!recentlyArchivedTask) return null;
+
+    return (
+      <div
+        ref={archiveUndoRef}
+        className={`fixed bottom-4 left-1/2 z-[95] w-[min(92vw,34rem)] -translate-x-1/2 rounded-xl border px-4 py-3 shadow-xl ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p className={`text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+            Task archived: <span className="font-semibold">{recentlyArchivedTask.task.title}</span>
+          </p>
+          <button
+            type="button"
+            onClick={undoArchiveTask}
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100"}`}
+          >
+            Undo
+          </button>
+        </div>
+      </div>
+    );
+  };
+
 
   return (
     <div className="space-y-6">
@@ -659,67 +1060,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               }}
               className={`w-full rounded-2xl border px-4 py-2 text-sm outline-none transition focus:border-slate-900 focus:ring-2 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 focus:border-[#7d6ba6] focus:ring-[#372a5d]" : "border-slate-200 bg-slate-50 text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
             />
-
-            {isSearching && searchPanelOpen ? (
-              <div className={`absolute left-0 top-[calc(100%+0.45rem)] z-[80] w-[min(72rem,95vw)] rounded-xl border p-3 shadow-xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    Results
-                  </p>
-                  <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                    {searchResults.length} match{searchResults.length === 1 ? "" : "es"}
-                  </p>
-                </div>
-
-                {searchResults.length === 0 ? (
-                  <div className={`rounded-lg border border-dashed px-3 py-4 text-sm ${darkMode ? "border-slate-600 text-slate-300" : "border-slate-300 text-slate-600"}`}>
-                    No tasks matched this query.
-                  </div>
-                ) : (
-                  <div className={`max-h-[24rem] overflow-auto rounded-lg border ${darkMode ? "border-[#372a5d]" : "border-slate-200"}`}>
-                    <table className="min-w-full text-left text-sm">
-                      <thead className={darkMode ? "bg-[#2f2640] text-slate-200" : "bg-slate-100 text-slate-700"}>
-                        <tr>
-                          <th className="px-3 py-2 font-semibold">Title</th>
-                          <th className="px-3 py-2 font-semibold">Label</th>
-                          <th className="px-3 py-2 font-semibold">Priority</th>
-                          <th className="px-3 py-2 font-semibold">Due date</th>
-                          <th className="px-3 py-2 font-semibold">Day</th>
-                          <th className="px-3 py-2 font-semibold">Status</th>
-                          <th className="px-3 py-2 font-semibold">Description</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {searchResults.map((result) => {
-                          const dueDateDisplay = result.task.dueDate?.trim()
-                            ? formatDueDateDisplay(result.task.dueDate)
-                            : "Not set";
-
-                          return (
-                            <tr
-                              key={`search-result-${result.dayIndex}-${result.taskIndex}`}
-                              onClick={() => {
-                                setSearchPanelOpen(false);
-                                openExpandedTask(result.dayIndex, result.taskIndex);
-                              }}
-                              className={`cursor-pointer border-t transition ${darkMode ? "border-[#372a5d] hover:bg-[#2a2142]" : "border-slate-200 hover:bg-slate-50"}`}
-                            >
-                              <td className="px-3 py-2 font-medium">{renderHighlightedText(result.task.title)}</td>
-                              <td className="px-3 py-2">{renderHighlightedText(result.task.tag)}</td>
-                              <td className="px-3 py-2">{renderHighlightedText(result.task.priority ?? "Not set")}</td>
-                              <td className="px-3 py-2">{renderHighlightedText(dueDateDisplay)}</td>
-                              <td className="px-3 py-2">{renderHighlightedText(result.day.label)}</td>
-                              <td className="px-3 py-2">{renderHighlightedText(result.task.completed ? "Completed" : "Open")}</td>
-                              <td className="px-3 py-2">{renderHighlightedText(result.task.description)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            ) : null}
+            {renderSearchResultsPanel()}
           </div>
           <button
             type="button"
@@ -751,13 +1092,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             >
               Views
             </button>
-            {viewsOpen ? (
-              <div
-                className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-              >
-                View options placeholder
-              </div>
-            ) : null}
+            {renderViewsDropdown()}
           </div>
           <div className="relative">
             <button
@@ -773,23 +1108,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             >
               <span className="text-lg">☰</span>
             </button>
-            {optionsOpen ? (
-              <div
-                className={`absolute right-0 mt-2 w-40 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-                style={{ borderTopRightRadius: 0 }}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setArchivePanelOpen(true);
-                    setOptionsOpen(false);
-                  }}
-                  className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-                >
-                  Archive
-                </button>
-              </div>
-            ) : null}
+            {renderOptionsDropdown()}
           </div>
         </div>
       </header>
@@ -805,321 +1124,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             dragging ? "cursor-grabbing" : "cursor-grab"
           }`}
         >
-          {days.map((day, index) => {
-            const visibleTaskEntries = day.tasks
-              .map((task, taskIndex) => ({ task, taskIndex }))
-              .filter(({ task }) => taskMatchesSearch(task, day));
-
-            return (
-              <KanbanColumn
-                key={day.label}
-                day={day}
-                index={index}
-                totalDays={days.length}
-                centerIndex={CENTER_INDEX}
-                selectedIndex={selectedIndex}
-                darkMode={darkMode}
-                dayColors={dayColors}
-                themeColors={themeColors}
-                onSelectDay={(dayIndex) => {
-                  if (dragRef.current.moved) {
-                    dragRef.current.moved = false;
-                    return;
-                  }
-                  ignoreScrollRef.current = true;
-                  setSelectedIndex(dayIndex);
-                }}
-                setDayRef={(dayIndex, element) => {
-                  dayRefs.current[dayIndex] = element;
-                }}
-                visibleTaskEntries={visibleTaskEntries}
-                isSearching={isSearching}
-                dropTarget={dropTarget}
-                editingTask={editingTask}
-                editTaskInput={editTaskInput}
-                setEditTaskInput={setEditTaskInput}
-                saveEditedTask={saveEditedTask}
-                cancelEditing={() => {
-                  setEditingTask(null);
-                  setEditTaskInput("");
-                }}
-                hoveredTask={hoveredTask}
-                setHoveredTask={setHoveredTask}
-                editInputRef={editInputRef}
-                onOpenExpandedTask={openExpandedTask}
-                onToggleTaskCompleted={toggleTaskCompleted}
-                onHandleDragStart={handleDragStart}
-                onHandleDragEnd={handleDragEnd}
-                onHandleTaskDragOver={handleTaskDragOver}
-                onHandleDrop={handleDrop}
-                onHandleListDragOver={handleListDragOver}
-                activeAddIndex={activeAddIndex}
-                newTaskInput={newTaskInput}
-                setNewTaskInput={setNewTaskInput}
-                setActiveAddIndex={setActiveAddIndex}
-                addInputRef={addInputRef}
-                onAddTaskToList={addTaskToList}
-                contextMenu={contextMenu}
-                contextMenuRef={contextMenuRef}
-                contextMenuMoveOpen={contextMenuMoveOpen}
-                setContextMenuMoveOpen={setContextMenuMoveOpen}
-                contextMenuTagOpen={contextMenuTagOpen}
-                setContextMenuTagOpen={setContextMenuTagOpen}
-                contextMenuSavedTagsOpen={contextMenuSavedTagsOpen}
-                setContextMenuSavedTagsOpen={setContextMenuSavedTagsOpen}
-                contextMenuDueDateOpen={contextMenuDueDateOpen}
-                setContextMenuDueDateOpen={setContextMenuDueDateOpen}
-                contextMenuTagInput={contextMenuTagInput}
-                setContextMenuTagInput={setContextMenuTagInput}
-                contextMenuTagColorInput={contextMenuTagColorInput}
-                setContextMenuTagColorInput={setContextMenuTagColorInput}
-                contextMenuDueDateInput={contextMenuDueDateInput}
-                setContextMenuDueDateInput={setContextMenuDueDateInput}
-                filteredContextMenuTagSuggestions={filteredContextMenuTagSuggestions}
-                setContextMenu={setContextMenu}
-                contextMenuDueDateInputRef={contextMenuDueDateInputRef}
-                onMoveTask={moveTask}
-                onSetTaskTag={setTaskTag}
-                onSetTaskDueDate={setTaskDueDate}
-                onArchiveTask={archiveTask}
-                days={days}
-              />
-            );
-          })}
+          {renderColumns()}
         </div>
       </section>
-
-      {expandedTask ? (
-        <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => setExpandedTask(null)}
-        >
-          <div
-            className={`w-full max-w-2xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Task Detail
-                </p>
-                <h2 className="mt-1 text-xl font-semibold leading-tight">
-                  {activeTask?.title ?? "Untitled Task"}
-                </h2>
-                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  {formatWeekdayLong(days[expandedTask.dayIndex]?.date ?? new Date())} · {formatMonthDay(days[expandedTask.dayIndex]?.date ?? new Date())}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExpandedTask(null)}
-                className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-5 grid gap-3">
-              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
-                <p className="text-sm font-semibold">Task Details</p>
-                <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                      Title
-                    </p>
-                    <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                      {activeTask?.title ?? "Untitled Task"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                      Due date
-                    </p>
-                    <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                      {activeTask?.dueDate?.trim() ? formatDueDateDisplay(activeTask.dueDate) : "Not set"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                      Priority
-                    </p>
-                    <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                      {activeTask?.priority ?? "Not set"}
-                    </p>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                      Description
-                    </p>
-                    <textarea
-                      value={activeTask?.description ?? ""}
-                      onChange={(e) => {
-                        if (!expandedTask) return;
-                        setTaskDescription(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
-                      }}
-                      placeholder="Write a description..."
-                      rows={5}
-                      className={`mt-2 w-full rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-relaxed outline-none transition resize-none placeholder:text-slate-400 focus:resize-y ${darkMode ? "text-slate-100 focus:border-[#7d6ba6] focus:bg-[#2f2640]" : "text-slate-900 focus:border-slate-500 focus:bg-white"}`}
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
-                <p className="text-sm font-semibold">Tag</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={expandedTagInput}
-                    onChange={(e) => setExpandedTagInput(e.target.value)}
-                    placeholder="coding, miscellaneous, etc"
-                    list={tagSuggestionsListId}
-                    autoComplete="off"
-                    className={`min-w-56 flex-1 rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
-                  />
-                  <div className="grid grid-cols-9 gap-1">
-                    {TAG_COLOR_OPTIONS.map((color) => {
-                      const active = expandedTagColorInput === color;
-                      return (
-                        <button
-                          key={`expanded-tag-color-${color}`}
-                          type="button"
-                          onClick={() => setExpandedTagColorInput(color)}
-                          className={`h-5 w-5 rounded-full border ${active ? 'ring-2 ring-slate-400' : ''}`}
-                          style={{ backgroundColor: color, borderColor: darkMode ? '#1f2937' : '#e2e8f0' }}
-                        />
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!expandedTask) return;
-                      setTaskTag(expandedTask.dayIndex, expandedTask.taskIndex, expandedTagInput, expandedTagColorInput);
-                    }}
-                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
-                  >
-                    Save Tag
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!expandedTask) return;
-                      setExpandedTagInput("");
-                      setExpandedTagColorInput("#22c55e");
-                      setTaskTag(expandedTask.dayIndex, expandedTask.taskIndex, "", "#22c55e");
-                    }}
-                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-            <datalist id={tagSuggestionsListId}>
-              {savedTagSuggestions.map((tag) => (
-                <option key={tag} value={tag} />
-              ))}
-            </datalist>
-        </div>
-      ) : null}
-
-      {archivePanelOpen ? (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => setArchivePanelOpen(false)}
-        >
-          <div
-            className={`w-full max-w-4xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Archived Tasks
-                </p>
-                <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  {archivedTasks.length} archived task{archivedTasks.length === 1 ? "" : "s"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setArchivePanelOpen(false)}
-                className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
-              >
-                Close
-              </button>
-            </div>
-
-            {archivedTasks.length === 0 ? (
-              <div className={`mt-4 rounded-lg border border-dashed px-4 py-6 text-sm ${darkMode ? "border-slate-600 text-slate-300" : "border-slate-300 text-slate-600"}`}>
-                No archived tasks yet.
-              </div>
-            ) : (
-              <div className="mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
-                {archivedTasks.map((entry) => (
-                  <article
-                    key={entry.id}
-                    className={`rounded-xl border p-3 ${darkMode ? "border-[#3f3361] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                          {entry.task.title}
-                        </h3>
-                        <p className={`mt-1 text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                          From {entry.dayLabel}
-                        </p>
-                      </div>
-                      <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                        {new Date(entry.archivedAt).toLocaleString()}
-                      </p>
-                    </div>
-
-                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
-                      <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
-                        Tag: <span className="font-medium">{entry.task.tag?.trim() || "-"}</span>
-                      </p>
-                      <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
-                        Priority: <span className="font-medium">{entry.task.priority ?? "Not set"}</span>
-                      </p>
-                      <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
-                        Due: <span className="font-medium">{entry.task.dueDate?.trim() ? formatDueDateDisplay(entry.task.dueDate) : "Not set"}</span>
-                      </p>
-                    </div>
-
-                    {entry.task.description?.trim() ? (
-                      <p className={`mt-2 text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                        {entry.task.description}
-                      </p>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : null}
-
-      {recentlyArchivedTask ? (
-        <div
-          ref={archiveUndoRef}
-          className={`fixed bottom-4 left-1/2 z-[95] w-[min(92vw,34rem)] -translate-x-1/2 rounded-xl border px-4 py-3 shadow-xl ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <p className={`text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-              Task archived: <span className="font-semibold">{recentlyArchivedTask.task.title}</span>
-            </p>
-            <button
-              type="button"
-              onClick={undoArchiveTask}
-              className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100"}`}
-            >
-              Undo
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {renderExpandedTaskModal()}
+      {renderArchivePanel()}
+      {renderArchiveUndoToast()}
     </div>
   );
 }
