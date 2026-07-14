@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import KanbanColumn from "./KanbanColumn";
-import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, Task } from "./kanbanTypes";
+import { supabase } from "../supabase";
+import KanbanColumn from "@/components/KanbanColumn";
+import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, Task } from "@/components/kanbanTypes";
 import {
   CENTER_INDEX,
   TAG_COLOR_OPTIONS,
@@ -13,7 +14,7 @@ import {
   formatWeekdayLong,
   formatWeekdayShort,
   lightColors,
-} from "./kanbanUtils";
+} from "@/components/kanbanUtils";
 
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
   const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
@@ -701,12 +702,25 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const renderViewsDropdown = () => {
+
+    const handleSignUp = async () => {
+      console.log("11111111")
+      const { data, error } = await supabase.auth.signUp({
+        email: "juliussimtim@gmail.com",
+        password: "Apple477!?",
+      });
+
+      console.log({ data, error });
+    };
+
     if (!viewsOpen) return null;
     return (
       <div
         className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
       >
-        View options placeholder
+        <button onClick={handleSignUp}>
+          Test Sign Up
+        </button>
       </div>
     );
   };
