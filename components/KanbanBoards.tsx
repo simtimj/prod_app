@@ -16,6 +16,8 @@ import {
   lightColors,
 } from "@/components/kanbanUtils";
 
+type AuthAction = "signup" | "signin" | "signout";
+
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
   const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -52,6 +54,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [contextMenuTagColorInput, setContextMenuTagColorInput] = useState("#22c55e");
   const [contextMenuDueDateInput, setContextMenuDueDateInput] = useState("");
   const [dropTarget, setDropTarget] = useState<{ dayIndex: number; insertIndex: number } | null>(null);
+  const [authAction, setAuthAction] = useState<AuthAction | null>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
   const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
@@ -177,6 +185,60 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const goToday = () => {
     setSelectedIndex(CENTER_INDEX);
+  };
+
+  const openAuthDialog = (nextAction: AuthAction) => {
+    setAuthAction(nextAction);
+    setAuthError("");
+    setAuthSuccess("");
+    setOptionsOpen(false);
+  };
+
+  const closeAuthDialog = () => {
+    if (authLoading) return;
+    setAuthAction(null);
+    setAuthError("");
+    setAuthSuccess("");
+  };
+
+  const handleAuthSubmit = async () => {
+    if (!authAction || authLoading) return;
+
+    const email = authEmail.trim();
+    const password = authPassword;
+    setAuthError("");
+    setAuthSuccess("");
+
+    if (authAction !== "signout" && (!email || !password)) {
+      setAuthError("Email and password are required.");
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      if (authAction === "signup") {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        setAuthSuccess("Sign up successful. Check your inbox if email verification is enabled.");
+      }
+
+      if (authAction === "signin") {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        setAuthSuccess("Signed in successfully.");
+      }
+
+      if (authAction === "signout") {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+        setAuthSuccess("Signed out successfully.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Auth request failed.";
+      setAuthError(message);
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const addTaskToList = (index: number, title: string) => {
@@ -713,29 +775,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const renderOptionsDropdown = () => {
-    const handleSignUp = async () => {
-      const { data, error } = await supabase.auth.signUp({
-        email: "juliussimtim@gmail.com",
-        password: "Apple477!?",
-      });
-
-      console.log({ data, error });
-    };
-
-    const handleSignIn = async () => {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: "juliussimtim@gmail.com",
-        password: "Apple477!?",
-      });
-
-      console.log({ data, error });
-    };
-
-    const handleSignOut = async () => {
-      const { error } = await supabase.auth.signOut();
-      console.log({ error });
-    };
-
     if (!optionsOpen) return null;
     return (
       <div
@@ -745,21 +784,21 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         <div className="mb-2 grid gap-1">
           <button
             type="button"
-            onClick={handleSignUp}
+            onClick={() => openAuthDialog("signup")}
             className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
           >
             Sign Up
           </button>
           <button
             type="button"
-            onClick={handleSignIn}
+            onClick={() => openAuthDialog("signin")}
             className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
           >
             Sign In
           </button>
           <button
             type="button"
-            onClick={handleSignOut}
+            onClick={() => openAuthDialog("signout")}
             className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
           >
             Sign Out
@@ -775,6 +814,89 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         >
           Archive
         </button>
+      </div>
+    );
+  };
+
+  const renderAuthDialog = () => {
+    if (!authAction) return null;
+
+    const actionLabel = authAction === "signup" ? "Sign Up" : authAction === "signin" ? "Sign In" : "Sign Out";
+    const submitLabel = authLoading ? "Working..." : actionLabel;
+    const requiresCredentials = authAction !== "signout";
+
+    return (
+      <div
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4"
+        onClick={closeAuthDialog}
+      >
+        <div
+          className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold">{actionLabel}</h3>
+            <button
+              type="button"
+              onClick={closeAuthDialog}
+              disabled={authLoading}
+              className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            <label className="grid gap-1 text-sm">
+              <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Email</span>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.target.value)}
+                placeholder="you@example.com"
+                className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+              />
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Password</span>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                placeholder="Your password"
+                className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+              />
+            </label>
+
+            {!requiresCredentials ? (
+              <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                Sign out does not require credentials, but the popup keeps the same auth form layout.
+              </p>
+            ) : null}
+
+            {authError ? (
+              <p className={`rounded-md border px-3 py-2 text-sm ${darkMode ? "border-red-500/50 bg-red-500/10 text-red-200" : "border-red-200 bg-red-50 text-red-700"}`}>
+                {authError}
+              </p>
+            ) : null}
+
+            {authSuccess ? (
+              <p className={`rounded-md border px-3 py-2 text-sm ${darkMode ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                {authSuccess}
+              </p>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleAuthSubmit}
+              disabled={authLoading}
+              className={`mt-1 w-full rounded-md border px-3 py-2 text-sm font-semibold transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-900 hover:bg-slate-200"} ${authLoading ? "cursor-not-allowed opacity-70" : ""}`}
+            >
+              {submitLabel}
+            </button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -1175,6 +1297,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         </div>
       </section>
       {renderExpandedTaskModal()}
+      {renderAuthDialog()}
       {renderArchivePanel()}
       {renderArchiveUndoToast()}
     </div>
