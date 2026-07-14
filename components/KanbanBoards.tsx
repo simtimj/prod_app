@@ -18,6 +18,52 @@ import {
 
 type AuthAction = "signup" | "signin" | "signout";
 
+type SupabaseTaskRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  completed: boolean;
+  tag: string | null;
+  tag_color: string | null;
+  description: string | null;
+  due_date: string | null;
+  priority: Task["priority"] | null;
+  created_at: string;
+  updated_at: string;
+  position: number;
+  archived: boolean;
+};
+
+const getDateKey = (date: Date) => date.toISOString().slice(0, 10);
+
+const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
+  id: row.id,
+  userId: row.user_id,
+  title: row.title,
+  completed: row.completed,
+  tag: row.tag ?? undefined,
+  tagColor: row.tag_color ?? undefined,
+  description: row.description ?? undefined,
+  dueDate: row.due_date ?? undefined,
+  priority: row.priority ?? undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const buildDayColumnsFromRows = (today: Date, rows: SupabaseTaskRow[]) => {
+  const nextDays = buildDayColumns(today);
+  const dayIndexByDate = new Map(nextDays.map((day, index) => [getDateKey(day.date), index]));
+
+  rows.forEach((row) => {
+    if (row.archived) return;
+
+    const targetIndex = row.due_date ? dayIndexByDate.get(row.due_date) ?? CENTER_INDEX : CENTER_INDEX;
+    nextDays[targetIndex].tasks.push(mapTaskRowToTask(row));
+  });
+
+  return nextDays;
+};
+
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
   const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -61,6 +107,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [remoteStatus, setRemoteStatus] = useState<"loading" | "signed-out" | "signed-in">("loading");
   const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
@@ -271,6 +318,66 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     return () => window.clearTimeout(timer);
   }, [authNotice]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTasksForUser = async (userId: string | null) => {
+      if (cancelled) return;
+
+      setRemoteStatus(userId ? "loading" : "signed-out");
+      setExpandedTask(null);
+      setEditingTask(null);
+      setEditTaskInput("");
+      setActiveAddIndex(null);
+      setContextMenu(null);
+      setDropTarget(null);
+      setRecentlyArchivedTask(null);
+      setArchivedTasks([]);
+
+      if (!userId) {
+        setDays(buildDayColumns(today));
+        setRemoteStatus("signed-out");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("tasks")
+        .select(
+          "id, user_id, title, completed, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived"
+        )
+        .eq("user_id", userId)
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (cancelled) return;
+
+      if (error) {
+        setAuthNotice(`Could not load saved tasks: ${error.message}`);
+        setDays(buildDayColumns(today));
+        setRemoteStatus("signed-in");
+        return;
+      }
+
+      setDays(buildDayColumnsFromRows(today, (data ?? []) as SupabaseTaskRow[]));
+      setRemoteStatus("signed-in");
+    };
+
+    void supabase.auth.getSession().then(({ data }) => {
+      void loadTasksForUser(data.session?.user.id ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void loadTasksForUser(session?.user.id ?? null);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [today]);
 
   const addTaskToList = (index: number, title: string) => {
     if (!title.trim()) return;
