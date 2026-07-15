@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../supabase";
 import KanbanColumn from "@/components/KanbanColumn";
 import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, Task } from "@/components/kanbanTypes";
 import {
@@ -15,55 +14,26 @@ import {
   formatWeekdayShort,
   lightColors,
 } from "@/components/kanbanUtils";
+import {
+  getCurrentSession,
+  signInWithEmailPassword,
+  signOutUser,
+  signUpWithEmailPassword,
+  subscribeToAuthChanges,
+} from "@/lib/database/authRepository";
+import {
+  buildDayColumnsFromRows,
+  getDayDateKey,
+  mapArchivedRowsToEntries,
+  partitionRows,
+} from "@/lib/database/mappers";
+import {
+  fetchTasksForUser,
+  updateTaskArchiveState,
+  upsertTask,
+} from "@/lib/database/tasksRepository";
 
 type AuthAction = "signup" | "signin" | "signout";
-
-type SupabaseTaskRow = {
-  id: string;
-  user_id: string;
-  title: string;
-  completed: boolean;
-  tag: string | null;
-  tag_color: string | null;
-  description: string | null;
-  due_date: string | null;
-  priority: Task["priority"] | null;
-  created_at: string;
-  updated_at: string;
-  position: number;
-  archived: boolean;
-  archived_at: string | null;
-};
-
-const getDateKey = (date: Date) => date.toISOString().slice(0, 10);
-
-const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
-  id: row.id,
-  userId: row.user_id,
-  title: row.title,
-  completed: row.completed,
-  tag: row.tag ?? undefined,
-  tagColor: row.tag_color ?? undefined,
-  description: row.description ?? undefined,
-  dueDate: row.due_date ?? undefined,
-  priority: row.priority ?? undefined,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
-
-const buildDayColumnsFromRows = (today: Date, rows: SupabaseTaskRow[]) => {
-  const nextDays = buildDayColumns(today);
-  const dayIndexByDate = new Map(nextDays.map((day, index) => [getDateKey(day.date), index]));
-
-  rows.forEach((row) => {
-    if (row.archived) return;
-
-    const targetIndex = row.due_date ? dayIndexByDate.get(row.due_date) ?? CENTER_INDEX : CENTER_INDEX;
-    nextDays[targetIndex].tasks.push(mapTaskRowToTask(row));
-  });
-
-  return nextDays;
-};
 
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
   const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
@@ -286,7 +256,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setAuthLoading(true);
 
     try {
-      const { error } = await supabase.auth.signOut();
+      const { error } = await signOutUser();
       if (error) throw error;
       setAuthNotice("Logged out.");
     } catch (error) {
@@ -313,19 +283,19 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setAuthLoading(true);
     try {
       if (authAction === "signup") {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await signUpWithEmailPassword(email, password);
         if (error) throw error;
         setAuthSuccess("Sign up successful. Check your inbox if email verification is enabled.");
       }
 
       if (authAction === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await signInWithEmailPassword(email, password);
         if (error) throw error;
         setAuthSuccess("Signed in successfully.");
       }
 
       if (authAction === "signout") {
-        const { error } = await supabase.auth.signOut();
+        const { error } = await signOutUser();
         if (error) throw error;
         setAuthSuccess("Signed out successfully.");
       }
@@ -366,40 +336,21 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         return;
       }
 
-      const { data, error } = await supabase
-        .from("tasks")
-        .select(
-          "id, user_id, title, completed, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived, archived_at"
-        )
-        .eq("user_id", userId)
-        .order("archived", { ascending: true })
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true });
+      try {
+        const rows = await fetchTasksForUser(userId);
+        const { activeRows, archivedRows } = partitionRows(rows);
 
-      if (error) {
-        setAuthNotice(`Could not load saved tasks: ${error.message}`);
+        setDays(buildDayColumnsFromRows(today, activeRows));
+        setArchivedTasks(mapArchivedRowsToEntries(archivedRows));
+        setBoardLoading(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown database error.";
+        setAuthNotice(`Could not load saved tasks: ${message}`);
         setArchivedTasks([]);
         setDays(buildDayColumns(today));
         setBoardLoading(false);
-        return;
+        console.error(message);
       }
-
-      const rows = (data ?? []) as SupabaseTaskRow[];
-      const activeRows = rows.filter((row) => !row.archived);
-      const archivedRows = rows.filter((row) => row.archived);
-
-      setDays(buildDayColumnsFromRows(today, activeRows));
-      setArchivedTasks(
-        archivedRows.map((row) => ({
-          id: row.id,
-          taskId: row.id,
-          userId: row.user_id,
-          task: mapTaskRowToTask(row),
-          dayLabel: row.due_date ? row.due_date : "Archived task",
-          archivedAt: row.archived_at ?? row.updated_at,
-        }))
-      );
-      setBoardLoading(false);
     },
     [today]
   );
@@ -407,14 +358,14 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   useEffect(() => {
     let cancelled = false;
 
-    void supabase.auth.getSession().then(({ data }) => {
+    void getCurrentSession().then(({ data }) => {
       if (cancelled) return;
       void loadTasksForUser(data.session?.user.id ?? null);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = subscribeToAuthChanges((_event, session) => {
       if (cancelled) return;
       void loadTasksForUser(session?.user.id ?? null);
     });
@@ -423,38 +374,22 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [today]);
+  }, [loadTasksForUser]);
 
   const getTaskAtLocation = (dayIndex: number, taskIndex: number) => days[dayIndex]?.tasks?.[taskIndex] ?? null;
 
-  const getDayDateKey = (dayIndex: number) => getDateKey(days[dayIndex]?.date ?? today);
+  const getDayDateKeyForColumn = (dayIndex: number) => getDayDateKey(days, today, dayIndex);
 
   const persistTaskUpsert = useCallback(
     async (task: Task, dayIndex: number, position: number) => {
       if (!currentUserId || !task.id) return;
 
-      const now = new Date().toISOString();
-      const { error } = await supabase.from("tasks").upsert(
-        {
-          id: task.id,
-          user_id: currentUserId,
-          title: task.title,
-          completed: Boolean(task.completed),
-          tag: task.tag ?? null,
-          tag_color: task.tagColor ?? null,
-          description: task.description ?? null,
-          due_date: task.dueDate ?? getDayDateKey(dayIndex),
-          priority: task.priority ?? null,
-          position,
-          archived: false,
-          archived_at: null,
-          created_at: task.createdAt ?? now,
-          updated_at: task.updatedAt ?? now,
-        },
-        { onConflict: "id" }
-      );
-
-      if (error) throw error;
+      await upsertTask({
+        task,
+        userId: currentUserId,
+        dueDate: getDayDateKeyForColumn(dayIndex),
+        position,
+      });
     },
     [currentUserId, days, today]
   );
@@ -463,17 +398,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     async (taskId: string | undefined, archived: boolean) => {
       if (!currentUserId || !taskId) return;
 
-      const { error } = await supabase
-        .from("tasks")
-        .update({
-          archived,
-          archived_at: archived ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", taskId)
-        .eq("user_id", currentUserId);
-
-      if (error) throw error;
+      await updateTaskArchiveState(taskId, currentUserId, archived);
     },
     [currentUserId]
   );
@@ -516,7 +441,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                 completed: false,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                dueDate: getDayDateKey(index),
+                dueDate: getDayDateKeyForColumn(index),
               },
             ],
           }
@@ -754,7 +679,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const task = nextDays[fromDay]?.tasks?.[fromTask];
     if (!task) return;
     nextDays[fromDay].tasks.splice(fromTask, 1);
-    nextDays[toDay].tasks = [...nextDays[toDay].tasks, { ...task, dueDate: getDayDateKey(toDay), updatedAt: new Date().toISOString() }];
+    nextDays[toDay].tasks = [...nextDays[toDay].tasks, { ...task, dueDate: getDayDateKeyForColumn(toDay), updatedAt: new Date().toISOString() }];
     setDays(nextDays);
 
     if (currentUserId && task.id) {
@@ -791,7 +716,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       return;
     }
 
-    targetTasks.splice(nextInsertIndex, 0, { ...task, dueDate: getDayDateKey(toDay), updatedAt: new Date().toISOString() });
+    targetTasks.splice(nextInsertIndex, 0, { ...task, dueDate: getDayDateKeyForColumn(toDay), updatedAt: new Date().toISOString() });
     setDays(nextDays);
 
     if (currentUserId && task.id) {
