@@ -109,11 +109,13 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [authSuccess, setAuthSuccess] = useState("");
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [boardLoading, setBoardLoading] = useState(true);
   const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const searchPanelRef = useRef<HTMLDivElement | null>(null);
+  const topMenusRef = useRef<HTMLDivElement | null>(null);
   const archiveUndoRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
@@ -139,6 +141,11 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (!query) return savedTagSuggestions.slice(0, 8);
     return savedTagSuggestions.filter((tag) => tag.toLowerCase().includes(query)).slice(0, 8);
   }, [contextMenuTagInput, savedTagSuggestions]);
+
+  const totalTaskCount = useMemo(
+    () => days.reduce((count, day) => count + day.tasks.length, 0),
+    [days]
+  );
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -186,6 +193,26 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       document.removeEventListener("mousedown", handleClickOutsideSearch);
     };
   }, []);
+
+  useEffect(() => {
+    const handleClickOutsideTopMenus = (event: MouseEvent) => {
+      if (
+        topMenusRef.current &&
+        !topMenusRef.current.contains(event.target as Node)
+      ) {
+        setViewsOpen(false);
+        setOptionsOpen(false);
+      }
+    };
+
+    if (viewsOpen || optionsOpen) {
+      document.addEventListener("mousedown", handleClickOutsideTopMenus);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutsideTopMenus);
+    };
+  }, [viewsOpen, optionsOpen]);
 
   useEffect(() => {
     if (!recentlyArchivedTask) return;
@@ -322,6 +349,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const loadTasksForUser = useCallback(
     async (userId: string | null) => {
+      setBoardLoading(true);
       setCurrentUserId(userId);
       setExpandedTask(null);
       setEditingTask(null);
@@ -334,6 +362,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       if (!userId) {
         setArchivedTasks([]);
         setDays(buildDayColumns(today));
+        setBoardLoading(false);
         return;
       }
 
@@ -351,6 +380,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         setAuthNotice(`Could not load saved tasks: ${error.message}`);
         setArchivedTasks([]);
         setDays(buildDayColumns(today));
+        setBoardLoading(false);
         return;
       }
 
@@ -369,6 +399,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           archivedAt: row.archived_at ?? row.updated_at,
         }))
       );
+      setBoardLoading(false);
     },
     [today]
   );
@@ -466,6 +497,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const addTaskToList = (index: number, title: string) => {
     if (!title.trim()) return;
+
+    if (!currentUserId) {
+      setAuthNotice("Sign in to create and save tasks.");
+      return;
+    }
+
     const nextDays = days.map((day, dayIndex) =>
       dayIndex === index
         ? {
@@ -1345,6 +1382,52 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       );
     });
 
+  const renderBoardStatePanel = () => {
+    const sharedClasses = `mx-5 my-6 rounded-xl border p-6 text-center ${darkMode ? "border-[#3f3361] bg-[#241c3c]" : "border-slate-200 bg-white"}`;
+
+    if (boardLoading) {
+      return (
+        <div className={sharedClasses}>
+          <p className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Loading your board...</p>
+        </div>
+      );
+    }
+
+    if (!currentUserId) {
+      return (
+        <div className={sharedClasses}>
+          <p className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>You are signed out</p>
+          <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+            Use the top-right Options menu to sign in or sign up, then your tasks will load from Supabase.
+          </p>
+        </div>
+      );
+    }
+
+    if (totalTaskCount === 0) {
+      return (
+        <div className={sharedClasses}>
+          <p className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Your board is empty</p>
+          <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+            Add your first task and it will be saved to your account.
+          </p>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const renderSignedInEmptyHint = () => {
+    if (boardLoading || !currentUserId || totalTaskCount > 0) return null;
+
+    return (
+      <div className={`mx-5 mt-4 rounded-xl border px-4 py-3 text-center text-sm ${darkMode ? "border-[#3f3361] bg-[#241c3c] text-slate-200" : "border-slate-200 bg-white text-slate-700"}`}>
+        Your board is empty. Use any day column to add your first task.
+      </div>
+    );
+  };
+
   const renderExpandedTaskModal = () => {
     if (!expandedTask) return null;
     return (
@@ -1607,7 +1690,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             {darkMode ? "Switch to Light" : "Switch to Dark"}
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div ref={topMenusRef} className="flex items-center gap-2">
           <div className="relative">
             <button
               type="button"
@@ -1644,18 +1727,25 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       </header>
 
       <section className={`overflow-hidden border shadow-sm ${darkMode ? "border-[#372a5d] bg-[#181224] shadow-[#241b35]/30" : "border-slate-200 bg-slate-50 shadow-slate-200/50"}`}>
-        <div
-          ref={scrollRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
-          className={`kanban-scroll flex overflow-x-auto px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide h-screen ${
-            dragging ? "cursor-grabbing" : "cursor-grab"
-          }`}
-        >
-          {renderColumns()}
-        </div>
+        {boardLoading || !currentUserId ? (
+          renderBoardStatePanel()
+        ) : (
+          <>
+            {renderSignedInEmptyHint()}
+          <div
+            ref={scrollRef}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            className={`kanban-scroll flex overflow-x-auto px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide h-screen ${
+              dragging ? "cursor-grabbing" : "cursor-grab"
+            }`}
+          >
+            {renderColumns()}
+          </div>
+          </>
+        )}
       </section>
       {renderExpandedTaskModal()}
       {renderAuthDialog()}
