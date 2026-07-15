@@ -32,6 +32,7 @@ type SupabaseTaskRow = {
   updated_at: string;
   position: number;
   archived: boolean;
+  archived_at: string | null;
 };
 
 const getDateKey = (date: Date) => date.toISOString().slice(0, 10);
@@ -107,7 +108,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [authNotice, setAuthNotice] = useState<string | null>(null);
-  const [remoteStatus, setRemoteStatus] = useState<"loading" | "signed-out" | "signed-in">("loading");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
@@ -319,13 +320,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     return () => window.clearTimeout(timer);
   }, [authNotice]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadTasksForUser = async (userId: string | null) => {
-      if (cancelled) return;
-
-      setRemoteStatus(userId ? "loading" : "signed-out");
+  const loadTasksForUser = useCallback(
+    async (userId: string | null) => {
+      setCurrentUserId(userId);
       setExpandedTask(null);
       setEditingTask(null);
       setEditTaskInput("");
@@ -333,43 +330,61 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setContextMenu(null);
       setDropTarget(null);
       setRecentlyArchivedTask(null);
-      setArchivedTasks([]);
 
       if (!userId) {
+        setArchivedTasks([]);
         setDays(buildDayColumns(today));
-        setRemoteStatus("signed-out");
         return;
       }
 
       const { data, error } = await supabase
         .from("tasks")
         .select(
-          "id, user_id, title, completed, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived"
+          "id, user_id, title, completed, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived, archived_at"
         )
         .eq("user_id", userId)
+        .order("archived", { ascending: true })
         .order("position", { ascending: true })
         .order("created_at", { ascending: true });
 
-      if (cancelled) return;
-
       if (error) {
         setAuthNotice(`Could not load saved tasks: ${error.message}`);
+        setArchivedTasks([]);
         setDays(buildDayColumns(today));
-        setRemoteStatus("signed-in");
         return;
       }
 
-      setDays(buildDayColumnsFromRows(today, (data ?? []) as SupabaseTaskRow[]));
-      setRemoteStatus("signed-in");
-    };
+      const rows = (data ?? []) as SupabaseTaskRow[];
+      const activeRows = rows.filter((row) => !row.archived);
+      const archivedRows = rows.filter((row) => row.archived);
+
+      setDays(buildDayColumnsFromRows(today, activeRows));
+      setArchivedTasks(
+        archivedRows.map((row) => ({
+          id: row.id,
+          taskId: row.id,
+          userId: row.user_id,
+          task: mapTaskRowToTask(row),
+          dayLabel: row.due_date ? row.due_date : "Archived task",
+          archivedAt: row.archived_at ?? row.updated_at,
+        }))
+      );
+    },
+    [today]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
 
     void supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
       void loadTasksForUser(data.session?.user.id ?? null);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
       void loadTasksForUser(session?.user.id ?? null);
     });
 
@@ -379,15 +394,108 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     };
   }, [today]);
 
+  const getTaskAtLocation = (dayIndex: number, taskIndex: number) => days[dayIndex]?.tasks?.[taskIndex] ?? null;
+
+  const getDayDateKey = (dayIndex: number) => getDateKey(days[dayIndex]?.date ?? today);
+
+  const persistTaskUpsert = useCallback(
+    async (task: Task, dayIndex: number, position: number) => {
+      if (!currentUserId || !task.id) return;
+
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("tasks").upsert(
+        {
+          id: task.id,
+          user_id: currentUserId,
+          title: task.title,
+          completed: Boolean(task.completed),
+          tag: task.tag ?? null,
+          tag_color: task.tagColor ?? null,
+          description: task.description ?? null,
+          due_date: task.dueDate ?? getDayDateKey(dayIndex),
+          priority: task.priority ?? null,
+          position,
+          archived: false,
+          archived_at: null,
+          created_at: task.createdAt ?? now,
+          updated_at: task.updatedAt ?? now,
+        },
+        { onConflict: "id" }
+      );
+
+      if (error) throw error;
+    },
+    [currentUserId, days, today]
+  );
+
+  const persistTaskArchiveState = useCallback(
+    async (taskId: string | undefined, archived: boolean) => {
+      if (!currentUserId || !taskId) return;
+
+      const { error } = await supabase
+        .from("tasks")
+        .update({
+          archived,
+          archived_at: archived ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", taskId)
+        .eq("user_id", currentUserId);
+
+      if (error) throw error;
+    },
+    [currentUserId]
+  );
+
+  const persistTaskRowsForDays = useCallback(
+    async (nextDays: DayColumn[], affectedDayIndexes: number[]) => {
+      if (!currentUserId) return;
+
+      const uniqueIndexes = Array.from(new Set(affectedDayIndexes));
+      await Promise.all(
+        uniqueIndexes.flatMap((dayIndex) => {
+          const day = nextDays[dayIndex];
+          if (!day) return [];
+
+          return day.tasks.map((task, position) => persistTaskUpsert(task, dayIndex, position));
+        })
+      );
+    },
+    [currentUserId, persistTaskUpsert]
+  );
+
   const addTaskToList = (index: number, title: string) => {
     if (!title.trim()) return;
-    setDays((currentDays) =>
-      currentDays.map((day, dayIndex) =>
-        dayIndex === index
-          ? { ...day, tasks: [...day.tasks, { title: title.trim(), completed: false }] }
-          : day
-      )
+    const nextDays = days.map((day, dayIndex) =>
+      dayIndex === index
+        ? {
+            ...day,
+            tasks: [
+              ...day.tasks,
+              {
+                id: crypto.randomUUID(),
+                userId: currentUserId ?? undefined,
+                title: title.trim(),
+                completed: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                dueDate: getDayDateKey(index),
+              },
+            ],
+          }
+        : day
     );
+
+    setDays(nextDays);
+
+    const task = nextDays[index]?.tasks[nextDays[index].tasks.length - 1];
+    if (task && currentUserId) {
+      void persistTaskUpsert(task, index, nextDays[index].tasks.length - 1).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save the new task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
     setNewTaskInput("");
     setActiveAddIndex(null);
   };
@@ -404,65 +512,101 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const setTaskTag = (dayIndex: number, taskIndex: number, tag: string, color?: string) => {
     const trimmedTag = tag.trim();
-    setDays((currentDays) =>
-      currentDays.map((day, currentDayIndex) =>
-        currentDayIndex === dayIndex
-          ? {
-              ...day,
-              tasks: day.tasks.map((task, currentTaskIndex) =>
-                currentTaskIndex === taskIndex
-                  ? {
-                      ...task,
-                      tag: trimmedTag || undefined,
-                      tagColor: trimmedTag ? (color ?? task.tagColor ?? "#22c55e") : undefined,
-                    }
-                  : task
-              ),
-            }
-          : day
-      )
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? {
+                    ...task,
+                    tag: trimmedTag || undefined,
+                    tagColor: trimmedTag ? (color ?? task.tagColor ?? "#22c55e") : undefined,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task
+            ),
+          }
+        : day
     );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save tag changes.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
   };
 
   const setTaskDueDate = (dayIndex: number, taskIndex: number, dueDate: string) => {
     const trimmedDueDate = dueDate.trim();
-    setDays((currentDays) =>
-      currentDays.map((day, currentDayIndex) =>
-        currentDayIndex === dayIndex
-          ? {
-              ...day,
-              tasks: day.tasks.map((task, currentTaskIndex) =>
-                currentTaskIndex === taskIndex
-                  ? {
-                      ...task,
-                      dueDate: trimmedDueDate || undefined,
-                    }
-                  : task
-              ),
-            }
-          : day
-      )
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? {
+                    ...task,
+                    dueDate: trimmedDueDate || undefined,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task
+            ),
+          }
+        : day
     );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save due date changes.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
   };
 
   const setTaskDescription = (dayIndex: number, taskIndex: number, description: string) => {
-    setDays((currentDays) =>
-      currentDays.map((day, currentDayIndex) =>
-        currentDayIndex === dayIndex
-          ? {
-              ...day,
-              tasks: day.tasks.map((task, currentTaskIndex) =>
-                currentTaskIndex === taskIndex
-                  ? {
-                      ...task,
-                      description,
-                    }
-                  : task
-              ),
-            }
-          : day
-      )
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? {
+                    ...task,
+                    description,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task
+            ),
+          }
+        : day
     );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save description changes.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
   };
 
   const saveEditedTask = () => {
@@ -471,20 +615,37 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setEditTaskInput("");
       return;
     }
-    setDays((currentDays) =>
-      currentDays.map((day, dayIndex) =>
-        dayIndex === editingTask.dayIndex
-          ? {
-              ...day,
-              tasks: day.tasks.map((task, taskIndex) =>
-                taskIndex === editingTask.taskIndex
-                  ? { ...task, title: editTaskInput.trim() }
-                  : task
-              ),
-            }
-          : day
-      )
+
+    const currentTask = getTaskAtLocation(editingTask.dayIndex, editingTask.taskIndex);
+    if (!currentTask) {
+      setEditingTask(null);
+      setEditTaskInput("");
+      return;
+    }
+
+    const nextDays = days.map((day, dayIndex) =>
+      dayIndex === editingTask.dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, taskIndex) =>
+              taskIndex === editingTask.taskIndex
+                ? { ...task, title: editTaskInput.trim(), updatedAt: new Date().toISOString() }
+                : task
+            ),
+          }
+        : day
     );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[editingTask.dayIndex].tasks[editingTask.taskIndex], editingTask.dayIndex, editingTask.taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save the edited task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+
     setEditingTask(null);
     setEditTaskInput("");
   };
@@ -510,6 +671,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setArchivedTasks((currentArchived) => [
       {
         id: archivedId,
+        taskId: removedTask.id,
+        userId: removedTask.userId,
         task: removedTask,
         dayLabel: dayLabel ?? "Unknown day",
         archivedAt,
@@ -523,7 +686,17 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       task: removedTask,
       dayLabel: dayLabel ?? "Unknown day",
       archivedId,
+      taskId: removedTask.id,
+      userId: removedTask.userId,
     });
+
+    if (currentUserId && removedTask.id) {
+      void persistTaskArchiveState(removedTask.id, true).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not archive the task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
 
     setContextMenu(null);
     if (editingTask?.dayIndex === dayIndex && editingTask?.taskIndex === taskIndex) {
@@ -540,14 +713,20 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setContextMenu(null);
       return;
     }
-    setDays((currentDays) => {
-      const daysCopy = currentDays.map((d) => ({ ...d, tasks: [...d.tasks] }));
-      const task = daysCopy[fromDay]?.tasks?.[fromTask];
-      if (!task) return currentDays;
-      daysCopy[fromDay].tasks.splice(fromTask, 1);
-      daysCopy[toDay].tasks = [...daysCopy[toDay].tasks, task];
-      return daysCopy;
-    });
+    const nextDays = days.map((day) => ({ ...day, tasks: [...day.tasks] }));
+    const task = nextDays[fromDay]?.tasks?.[fromTask];
+    if (!task) return;
+    nextDays[fromDay].tasks.splice(fromTask, 1);
+    nextDays[toDay].tasks = [...nextDays[toDay].tasks, { ...task, dueDate: getDayDateKey(toDay), updatedAt: new Date().toISOString() }];
+    setDays(nextDays);
+
+    if (currentUserId && task.id) {
+      void persistTaskRowsForDays(nextDays, [fromDay, toDay]).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not move the task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
     setContextMenu(null);
     if (expandedTask?.dayIndex === fromDay && expandedTask?.taskIndex === fromTask) {
       setExpandedTask(null);
@@ -555,28 +734,36 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const moveTaskToIndex = (fromDay: number, fromTask: number, toDay: number, insertIndex: number) => {
-    setDays((currentDays) => {
-      const daysCopy = currentDays.map((d) => ({ ...d, tasks: [...d.tasks] }));
-      const sourceTasks = daysCopy[fromDay]?.tasks;
-      const targetTasks = daysCopy[toDay]?.tasks;
-      const task = sourceTasks?.[fromTask];
-      if (!sourceTasks || !targetTasks || !task) return currentDays;
+    const nextDays = days.map((day) => ({ ...day, tasks: [...day.tasks] }));
+    const sourceTasks = nextDays[fromDay]?.tasks;
+    const targetTasks = nextDays[toDay]?.tasks;
+    const task = sourceTasks?.[fromTask];
+    if (!sourceTasks || !targetTasks || !task) return;
 
-      sourceTasks.splice(fromTask, 1);
-      let nextInsertIndex = insertIndex;
-      if (fromDay === toDay && fromTask < insertIndex) {
-        nextInsertIndex -= 1;
-      }
-      nextInsertIndex = Math.max(0, Math.min(nextInsertIndex, targetTasks.length));
+    sourceTasks.splice(fromTask, 1);
+    let nextInsertIndex = insertIndex;
+    if (fromDay === toDay && fromTask < insertIndex) {
+      nextInsertIndex -= 1;
+    }
+    nextInsertIndex = Math.max(0, Math.min(nextInsertIndex, targetTasks.length));
 
-      if (fromDay === toDay && nextInsertIndex === fromTask) {
-        sourceTasks.splice(fromTask, 0, task);
-        return currentDays;
-      }
+    if (fromDay === toDay && nextInsertIndex === fromTask) {
+      sourceTasks.splice(fromTask, 0, task);
+        setDropTarget(null);
+        setContextMenu(null);
+      return;
+    }
 
-      targetTasks.splice(nextInsertIndex, 0, task);
-      return daysCopy;
-    });
+    targetTasks.splice(nextInsertIndex, 0, { ...task, dueDate: getDayDateKey(toDay), updatedAt: new Date().toISOString() });
+    setDays(nextDays);
+
+    if (currentUserId && task.id) {
+      void persistTaskRowsForDays(nextDays, [fromDay, toDay]).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not move the task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
 
     setDropTarget(null);
     setContextMenu(null);
@@ -587,20 +774,31 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const toggleTaskCompleted = (dayIndex: number, taskIndex: number) => {
-    setDays((currentDays) =>
-      currentDays.map((day, currentDayIndex) =>
-        currentDayIndex === dayIndex
-          ? {
-              ...day,
-              tasks: day.tasks.map((task, currentTaskIndex) =>
-                currentTaskIndex === taskIndex
-                  ? { ...task, completed: !task.completed }
-                  : task
-              ),
-            }
-          : day
-      )
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? { ...task, completed: !task.completed, updatedAt: new Date().toISOString() }
+                : task
+            ),
+          }
+        : day
     );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save completion state.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
   };
 
   const handleDragStart = (fromDay: number, fromTask: number, e: React.DragEvent) => {
@@ -749,8 +947,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       currentArchived.filter((entry) => entry.id !== snapshot.archivedId)
     );
 
+    if (currentUserId && snapshot.task.id) {
+      void persistTaskArchiveState(snapshot.task.id, false).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not restore the archived task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+
     setRecentlyArchivedTask(null);
-  }, [recentlyArchivedTask]);
+  }, [currentUserId, loadTasksForUser, persistTaskArchiveState, recentlyArchivedTask]);
 
   useEffect(() => {
     if (!recentlyArchivedTask) return;
