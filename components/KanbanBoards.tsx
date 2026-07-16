@@ -66,6 +66,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [expandedRecurrenceFrequency, setExpandedRecurrenceFrequency] = useState<RecurrenceFrequency>("daily");
   const [expandedRecurrenceWeekdays, setExpandedRecurrenceWeekdays] = useState<number[]>([1]);
   const [expandedRecurrenceMonthDays, setExpandedRecurrenceMonthDays] = useState<number[]>([1]);
+  const [expandedRecurrenceOpen, setExpandedRecurrenceOpen] = useState(false);
   const [expandedTagInput, setExpandedTagInput] = useState("");
   const [expandedTagColorInput, setExpandedTagColorInput] = useState("#22c55e");
   const [hoveredTask, setHoveredTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
@@ -475,6 +476,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const task = days[dayIndex]?.tasks?.[taskIndex];
     setSelectedIndex(dayIndex);
     setExpandedTask({ dayIndex, taskIndex });
+    setExpandedRecurrenceOpen(false);
     setExpandedRecurrenceEnabled(Boolean(task?.recurrence?.enabled));
     setExpandedRecurrenceFrequency(task?.recurrence?.frequency ?? "daily");
     setExpandedRecurrenceWeekdays(task?.recurrence?.weekdays?.length ? task.recurrence.weekdays : [1]);
@@ -578,6 +580,70 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (currentUserId && currentTask.id) {
       void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Could not save description changes.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+  };
+
+  const setTaskTitle = (dayIndex: number, taskIndex: number, title: string) => {
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? {
+                    ...task,
+                    title,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task
+            ),
+          }
+        : day
+    );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save title changes.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+  };
+
+  const setTaskPriority = (dayIndex: number, taskIndex: number, priority: Task["priority"] | "") => {
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? {
+                    ...task,
+                    priority: priority || undefined,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task
+            ),
+          }
+        : day
+    );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save priority changes.";
         setAuthNotice(message);
         void loadTasksForUser(currentUserId);
       });
@@ -1491,17 +1557,44 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               <div className="mt-2 grid gap-3 sm:grid-cols-2">
                 <div>
                   <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Title</p>
-                  <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{activeTask?.title ?? "Untitled Task"}</p>
+                  <input
+                    type="text"
+                    value={activeTask?.title ?? ""}
+                    onChange={(e) => {
+                      if (!expandedTask) return;
+                      setTaskTitle(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
+                    }}
+                    placeholder="Task title"
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
                 </div>
                 <div>
                   <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due date</p>
-                  <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                    {activeTask?.dueDate?.trim() ? formatDueDateDisplay(activeTask.dueDate) : "Not set"}
-                  </p>
+                  <input
+                    type="date"
+                    value={activeTask?.dueDate ?? ""}
+                    onChange={(e) => {
+                      if (!expandedTask) return;
+                      setTaskDueDate(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
+                    }}
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
                 </div>
                 <div>
                   <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Priority</p>
-                  <p className={`mt-1 text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{activeTask?.priority ?? "Not set"}</p>
+                  <select
+                    value={activeTask?.priority ?? ""}
+                    onChange={(e) => {
+                      if (!expandedTask) return;
+                      setTaskPriority(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value as Task["priority"] | "");
+                    }}
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  >
+                    <option value="">Not set</option>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
                 </div>
                 <div className="sm:col-span-2">
                   <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Description</p>
@@ -1519,132 +1612,146 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               </div>
             </div>
             <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
-              <p className="text-sm font-semibold">Recurrence</p>
-              <div className="mt-2 grid gap-3">
-                <label className={`flex items-center gap-2 text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                  <input
-                    type="checkbox"
-                    checked={expandedRecurrenceEnabled}
-                    onChange={(event) => setExpandedRecurrenceEnabled(event.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  Make this task recurring
-                </label>
-
-                {expandedRecurrenceEnabled ? (
-                  <>
-                    <label className="grid gap-1 text-sm">
-                      <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Repeats</span>
-                      <select
-                        value={expandedRecurrenceFrequency}
-                        onChange={(event) => setExpandedRecurrenceFrequency(event.target.value as RecurrenceFrequency)}
-                        className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
-                      >
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                      </select>
-                    </label>
-
-                    {expandedRecurrenceFrequency === "weekly" ? (
-                      <div>
-                        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Days of week</p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {RECURRENCE_WEEKDAY_LABELS.map((label, dayIndex) => {
-                            const active = expandedRecurrenceWeekdays.includes(dayIndex);
-                            return (
-                              <button
-                                key={`recurrence-day-${label}`}
-                                type="button"
-                                onClick={() => {
-                                  setExpandedRecurrenceWeekdays((current) => {
-                                    if (current.includes(dayIndex)) {
-                                      if (current.length === 1) return current;
-                                      return current.filter((value) => value !== dayIndex);
-                                    }
-                                    return [...current, dayIndex].sort((a, b) => a - b);
-                                  });
-                                }}
-                                className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
-                                  active
-                                    ? darkMode
-                                      ? "border-[#7d6ba6] bg-[#3b315a] text-slate-100"
-                                      : "border-slate-500 bg-slate-200 text-slate-900"
-                                    : darkMode
-                                      ? "border-[#423865] bg-[#2f2640] text-slate-200 hover:bg-[#3b315a]"
-                                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {expandedRecurrenceFrequency === "monthly" ? (
-                      <div>
-                        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Days of month</p>
-                        <div className="mt-2 grid grid-cols-7 gap-1">
-                          {Array.from({ length: 31 }, (_, index) => index + 1).map((dayValue) => {
-                            const active = expandedRecurrenceMonthDays.includes(dayValue);
-                            return (
-                              <button
-                                key={`recurrence-month-day-${dayValue}`}
-                                type="button"
-                                onClick={() => {
-                                  setExpandedRecurrenceMonthDays((current) => {
-                                    if (current.includes(dayValue)) {
-                                      if (current.length === 1) return current;
-                                      return current.filter((value) => value !== dayValue);
-                                    }
-                                    return [...current, dayValue].sort((a, b) => a - b);
-                                  });
-                                }}
-                                className={`rounded-md border px-1.5 py-1 text-xs font-medium transition ${
-                                  active
-                                    ? darkMode
-                                      ? "border-[#7d6ba6] bg-[#3b315a] text-slate-100"
-                                      : "border-slate-500 bg-slate-200 text-slate-900"
-                                    : darkMode
-                                      ? "border-[#423865] bg-[#2f2640] text-slate-200 hover:bg-[#3b315a]"
-                                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                                }`}
-                              >
-                                {dayValue}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!expandedTask) return;
-                      setTaskRecurrence(
-                        expandedTask.dayIndex,
-                        expandedTask.taskIndex,
-                        expandedRecurrenceEnabled,
-                        expandedRecurrenceFrequency,
-                        expandedRecurrenceWeekdays,
-                        expandedRecurrenceMonthDays
-                      );
-                    }}
-                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
-                  >
-                    Save Recurrence
-                  </button>
-                  <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+              <button
+                type="button"
+                onClick={() => setExpandedRecurrenceOpen((value) => !value)}
+                className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition ${darkMode ? "border-[#423865] bg-[#2f2640] hover:bg-[#3b315a]" : "border-slate-300 bg-white hover:bg-slate-100"}`}
+              >
+                <span>
+                  <span className="text-sm font-semibold">Recurrence</span>
+                  <span className={`mt-0.5 block text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
                     {activeTask ? formatRecurrenceDisplay(activeTask) : "Not recurring"}
-                  </p>
+                  </span>
+                </span>
+                <span className={`text-xs font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                  {expandedRecurrenceOpen ? "Hide" : "Edit"}
+                </span>
+              </button>
+
+              {expandedRecurrenceOpen ? (
+                <div className="mt-3 grid gap-3">
+                  <label className={`flex items-center gap-2 text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                    <input
+                      type="checkbox"
+                      checked={expandedRecurrenceEnabled}
+                      onChange={(event) => setExpandedRecurrenceEnabled(event.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Make this task recurring
+                  </label>
+
+                  {expandedRecurrenceEnabled ? (
+                    <>
+                      <label className="grid gap-1 text-sm">
+                        <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Repeats</span>
+                        <select
+                          value={expandedRecurrenceFrequency}
+                          onChange={(event) => setExpandedRecurrenceFrequency(event.target.value as RecurrenceFrequency)}
+                          className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                        >
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly">Monthly</option>
+                        </select>
+                      </label>
+
+                      {expandedRecurrenceFrequency === "weekly" ? (
+                        <div>
+                          <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Days of week</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {RECURRENCE_WEEKDAY_LABELS.map((label, dayIndex) => {
+                              const active = expandedRecurrenceWeekdays.includes(dayIndex);
+                              return (
+                                <button
+                                  key={`recurrence-day-${label}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedRecurrenceWeekdays((current) => {
+                                      if (current.includes(dayIndex)) {
+                                        if (current.length === 1) return current;
+                                        return current.filter((value) => value !== dayIndex);
+                                      }
+                                      return [...current, dayIndex].sort((a, b) => a - b);
+                                    });
+                                  }}
+                                  className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                                    active
+                                      ? darkMode
+                                        ? "border-[#7d6ba6] bg-[#3b315a] text-slate-100"
+                                        : "border-slate-500 bg-slate-200 text-slate-900"
+                                      : darkMode
+                                        ? "border-[#423865] bg-[#2f2640] text-slate-200 hover:bg-[#3b315a]"
+                                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {expandedRecurrenceFrequency === "monthly" ? (
+                        <div>
+                          <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Days of month</p>
+                          <div className="mt-2 grid grid-cols-7 gap-1">
+                            {Array.from({ length: 31 }, (_, index) => index + 1).map((dayValue) => {
+                              const active = expandedRecurrenceMonthDays.includes(dayValue);
+                              return (
+                                <button
+                                  key={`recurrence-month-day-${dayValue}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedRecurrenceMonthDays((current) => {
+                                      if (current.includes(dayValue)) {
+                                        if (current.length === 1) return current;
+                                        return current.filter((value) => value !== dayValue);
+                                      }
+                                      return [...current, dayValue].sort((a, b) => a - b);
+                                    });
+                                  }}
+                                  className={`rounded-md border px-1.5 py-1 text-xs font-medium transition ${
+                                    active
+                                      ? darkMode
+                                        ? "border-[#7d6ba6] bg-[#3b315a] text-slate-100"
+                                        : "border-slate-500 bg-slate-200 text-slate-900"
+                                      : darkMode
+                                        ? "border-[#423865] bg-[#2f2640] text-slate-200 hover:bg-[#3b315a]"
+                                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  {dayValue}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!expandedTask) return;
+                        setTaskRecurrence(
+                          expandedTask.dayIndex,
+                          expandedTask.taskIndex,
+                          expandedRecurrenceEnabled,
+                          expandedRecurrenceFrequency,
+                          expandedRecurrenceWeekdays,
+                          expandedRecurrenceMonthDays
+                        );
+                      }}
+                      className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+                    >
+                      Save Recurrence
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </div>
             <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
               <p className="text-sm font-semibold">Tag</p>
