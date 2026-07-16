@@ -79,6 +79,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [authSuccess, setAuthSuccess] = useState("");
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [boardLoading, setBoardLoading] = useState(true);
   const tagSuggestionsListId = "kanban-tag-suggestions";
   const addInputRef = useRef<HTMLInputElement | null>(null);
@@ -318,9 +319,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   }, [authNotice]);
 
   const loadTasksForUser = useCallback(
-    async (userId: string | null) => {
+    async (userId: string | null, userEmail: string | null = null) => {
       setBoardLoading(true);
       setCurrentUserId(userId);
+      setCurrentUserEmail(userEmail);
       setExpandedTask(null);
       setEditingTask(null);
       setEditTaskInput("");
@@ -360,14 +362,14 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     void getCurrentSession().then(({ data }) => {
       if (cancelled) return;
-      void loadTasksForUser(data.session?.user.id ?? null);
+      void loadTasksForUser(data.session?.user.id ?? null, data.session?.user.email ?? null);
     });
 
     const {
       data: { subscription },
     } = subscribeToAuthChanges((_event, session) => {
       if (cancelled) return;
-      void loadTasksForUser(session?.user.id ?? null);
+      void loadTasksForUser(session?.user.id ?? null, session?.user.email ?? null);
     });
 
     return () => {
@@ -1082,33 +1084,47 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const renderOptionsDropdown = () => {
     if (!optionsOpen) return null;
+
+    const isSignedIn = Boolean(currentUserId);
+    const signedInLabel = currentUserEmail ? `Signed in as ${currentUserEmail}` : "Signed in";
+
     return (
       <div
         className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
         style={{ borderTopRightRadius: 0 }}
       >
+        {isSignedIn ? (
+          <p className={`mb-2 rounded-md border px-2 py-1.5 text-xs font-medium ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+            {signedInLabel}
+          </p>
+        ) : null}
         <div className="mb-2 grid gap-1">
-          <button
-            type="button"
-            onClick={() => openAuthDialog("signup")}
-            className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-          >
-            Sign Up
-          </button>
-          <button
-            type="button"
-            onClick={() => openAuthDialog("signin")}
-            className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={handleImmediateSignOut}
-            className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-          >
-            Sign Out
-          </button>
+          {!isSignedIn ? (
+            <>
+              <button
+                type="button"
+                onClick={() => openAuthDialog("signup")}
+                className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+              >
+                Sign Up
+              </button>
+              <button
+                type="button"
+                onClick={() => openAuthDialog("signin")}
+                className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+              >
+                Sign In
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleImmediateSignOut}
+              className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+            >
+              Sign Out
+            </button>
+          )}
         </div>
         <button
           type="button"
