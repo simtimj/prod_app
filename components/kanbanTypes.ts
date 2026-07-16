@@ -8,6 +8,7 @@ export type Task = {
   tagColor?: string;
   description?: string;
   dueDate?: string;
+  dueTime?: string;
   priority?: "Low" | "Medium" | "High";
   createdAt?: string;
   updatedAt?: string;
@@ -50,4 +51,21 @@ export type ArchivedTaskEntry = {
 export type TaskLocation = {
   dayIndex: number;
   taskIndex: number;
+};
+
+export type ParseTaskRequest = {
+  text: string;
+  timezone?: string;
+  currentDate?: string;
+};
+
+export type ParsedTaskDraft = {
+  title: string;
+  dueDate?: string;
+  dueTime?: string;
+  description?: string;
+};
+
+export type ParseTaskResponse = {
+  draft: ParsedTaskDraft;
 };

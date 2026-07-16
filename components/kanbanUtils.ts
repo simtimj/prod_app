@@ -118,6 +118,23 @@ export function formatDueDateDisplay(dateValue?: string) {
   });
 }
 
+export function formatDueTimeDisplay(timeValue?: string) {
+  if (!timeValue?.trim()) return "";
+  const trimmed = timeValue.trim();
+  if (!/^\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+
+  const [hoursRaw, minutesRaw] = trimmed.split(":");
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return trimmed;
+  }
+
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
 export function formatRecurrenceDisplay(task: Task) {
   if (!task.recurrence?.enabled) return "Not recurring";
 

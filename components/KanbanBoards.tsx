@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import KanbanColumn from "@/components/KanbanColumn";
-import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, RecurrenceFrequency, Task } from "@/components/kanbanTypes";
+import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, Task } from "@/components/kanbanTypes";
 import {
   CENTER_INDEX,
   RECURRENCE_WEEKDAY_LABELS,
@@ -10,6 +10,7 @@ import {
   buildDayColumns,
   darkColors,
   formatDueDateDisplay,
+  formatDueTimeDisplay,
   formatMonthDay,
   formatRecurrenceDisplay,
   formatWeekdayLong,
@@ -59,6 +60,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const themeColors = darkMode ? darkColors : lightColors;
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
+  const [smartTaskLoading, setSmartTaskLoading] = useState(false);
+  const [smartTaskError, setSmartTaskError] = useState<string | null>(null);
+  const [smartTaskRetryUntilMs, setSmartTaskRetryUntilMs] = useState<number | null>(null);
+  const [smartTaskPreview, setSmartTaskPreview] = useState<{
+    dayIndex: number;
+    draft: ParsedTaskDraft;
+    sourceText: string;
+    referenceDate: string;
+    timezone: string;
+  } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [editTaskInput, setEditTaskInput] = useState<string>("");
   const [expandedTask, setExpandedTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
@@ -78,6 +89,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [contextMenuTagInput, setContextMenuTagInput] = useState("");
   const [contextMenuTagColorInput, setContextMenuTagColorInput] = useState("#22c55e");
   const [contextMenuDueDateInput, setContextMenuDueDateInput] = useState("");
+  const [contextMenuDueTimeInput, setContextMenuDueTimeInput] = useState("");
   const [dropTarget, setDropTarget] = useState<{ dayIndex: number; insertIndex: number } | null>(null);
   const [authAction, setAuthAction] = useState<AuthAction | null>(null);
   const [authEmail, setAuthEmail] = useState("");
@@ -335,6 +347,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setEditingTask(null);
       setEditTaskInput("");
       setActiveAddIndex(null);
+      setSmartTaskError(null);
+      setSmartTaskPreview(null);
+      setSmartTaskRetryUntilMs(null);
       setContextMenu(null);
       setDropTarget(null);
       setRecentlyArchivedTask(null);
@@ -430,6 +445,30 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     [currentUserId, persistTaskUpsert]
   );
 
+  const insertTaskIntoDay = useCallback(
+    ({ dayIndex, task }: { dayIndex: number; task: Task }) => {
+      const nextDays = days.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              tasks: [...day.tasks, task],
+            }
+          : day
+      );
+
+      setDays(nextDays);
+
+      if (currentUserId && task.id) {
+        void persistTaskUpsert(task, dayIndex, nextDays[dayIndex].tasks.length - 1).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Could not save the new task.";
+          setAuthNotice(message);
+          void loadTasksForUser(currentUserId);
+        });
+      }
+    },
+    [currentUserId, days, loadTasksForUser, persistTaskUpsert]
+  );
+
   const addTaskToList = (index: number, title: string) => {
     if (!title.trim()) return;
 
@@ -438,38 +477,125 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       return;
     }
 
-    const nextDays = days.map((day, dayIndex) =>
-      dayIndex === index
-        ? {
-            ...day,
-            tasks: [
-              ...day.tasks,
-              {
-                id: crypto.randomUUID(),
-                userId: currentUserId ?? undefined,
-                title: title.trim(),
-                completed: false,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                dueDate: getDayDateKeyForColumn(index),
-              },
-            ],
-          }
-        : day
-    );
+    const now = new Date().toISOString();
+    insertTaskIntoDay({
+      dayIndex: index,
+      task: {
+        id: crypto.randomUUID(),
+        userId: currentUserId ?? undefined,
+        title: title.trim(),
+        completed: false,
+        createdAt: now,
+        updatedAt: now,
+        dueDate: getDayDateKeyForColumn(index),
+      },
+    });
 
-    setDays(nextDays);
-
-    const task = nextDays[index]?.tasks[nextDays[index].tasks.length - 1];
-    if (task && currentUserId) {
-      void persistTaskUpsert(task, index, nextDays[index].tasks.length - 1).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Could not save the new task.";
-        setAuthNotice(message);
-        void loadTasksForUser(currentUserId);
-      });
-    }
     setNewTaskInput("");
     setActiveAddIndex(null);
+  };
+
+  const submitSmartTaskInput = async (dayIndex: number, rawText: string) => {
+    const text = rawText.trim();
+
+    if (!text) return;
+
+    if (!currentUserId) {
+      setAuthNotice("Sign in to create and save tasks.");
+      return;
+    }
+
+    const nowMs = Date.now();
+    if (smartTaskRetryUntilMs && nowMs < smartTaskRetryUntilMs) {
+      const waitSeconds = Math.max(1, Math.ceil((smartTaskRetryUntilMs - nowMs) / 1000));
+      setSmartTaskError(`Please wait ${waitSeconds}s before trying again.`);
+      return;
+    }
+
+    setSmartTaskLoading(true);
+    setSmartTaskError(null);
+
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const now = new Date();
+      const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+      const response = await fetch("/api/parse-task", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text, timezone, currentDate }),
+      });
+
+      const rawBody = await response.text();
+      let payload: (ParseTaskResponse & { error?: string; retryAfterSeconds?: number }) | null = null;
+
+      try {
+        payload = JSON.parse(rawBody) as ParseTaskResponse & { error?: string };
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        if (response.status === 429 && payload?.retryAfterSeconds) {
+          setSmartTaskRetryUntilMs(Date.now() + payload.retryAfterSeconds * 1000);
+        }
+        throw new Error(payload?.error ?? `Could not parse task. Server returned ${response.status}.`);
+      }
+
+      setSmartTaskRetryUntilMs(null);
+
+      if (!payload?.draft?.title) {
+        throw new Error("Parser returned an invalid response.");
+      }
+
+      setSmartTaskPreview({
+        dayIndex,
+        draft: payload.draft,
+        sourceText: text,
+        referenceDate: currentDate,
+        timezone,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not parse task.";
+      setSmartTaskError(message);
+    } finally {
+      setSmartTaskLoading(false);
+    }
+  };
+
+  const confirmSmartTaskPreview = () => {
+    if (!smartTaskPreview || !currentUserId) return;
+
+    const now = new Date().toISOString();
+    const descriptionWithSource = smartTaskPreview.draft.description?.trim()
+      ? `${smartTaskPreview.draft.description.trim()}\n\nOriginal input: ${smartTaskPreview.sourceText}`
+      : `Original input: ${smartTaskPreview.sourceText}`;
+
+    insertTaskIntoDay({
+      dayIndex: smartTaskPreview.dayIndex,
+      task: {
+        id: crypto.randomUUID(),
+        userId: currentUserId ?? undefined,
+        title: smartTaskPreview.draft.title.trim(),
+        completed: false,
+        createdAt: now,
+        updatedAt: now,
+        dueDate: smartTaskPreview.draft.dueDate?.trim() || undefined,
+        dueTime: smartTaskPreview.draft.dueTime?.trim() || undefined,
+        description: descriptionWithSource,
+      },
+    });
+
+    setSmartTaskPreview(null);
+    setNewTaskInput("");
+    setActiveAddIndex(null);
+    setSmartTaskError(null);
+  };
+
+  const cancelSmartTaskPreview = () => {
+    setSmartTaskPreview(null);
   };
 
   const openExpandedTask = (dayIndex: number, taskIndex: number) => {
@@ -548,6 +674,39 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (currentUserId && currentTask.id) {
       void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Could not save due date changes.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+  };
+
+  const setTaskDueTime = (dayIndex: number, taskIndex: number, dueTime: string) => {
+    const trimmedDueTime = dueTime.trim();
+    const currentTask = getTaskAtLocation(dayIndex, taskIndex);
+    if (!currentTask) return;
+
+    const nextDays = days.map((day, currentDayIndex) =>
+      currentDayIndex === dayIndex
+        ? {
+            ...day,
+            tasks: day.tasks.map((task, currentTaskIndex) =>
+              currentTaskIndex === taskIndex
+                ? {
+                    ...task,
+                    dueTime: trimmedDueTime || undefined,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task
+            ),
+          }
+        : day
+    );
+
+    setDays(nextDays);
+
+    if (currentUserId && currentTask.id) {
+      void persistTaskUpsert(nextDays[dayIndex].tasks[taskIndex], dayIndex, taskIndex).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save due time changes.";
         setAuthNotice(message);
         void loadTasksForUser(currentUserId);
       });
@@ -1099,7 +1258,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       task.description,
       task.tag,
       task.dueDate,
+      task.dueTime,
       formatDueDateDisplay(task.dueDate),
+      formatDueTimeDisplay(task.dueTime),
       task.priority,
       formatRecurrenceDisplay(task),
       task.completed ? "completed" : "not completed",
@@ -1195,6 +1356,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                   const dueDateDisplay = result.task.dueDate?.trim()
                     ? formatDueDateDisplay(result.task.dueDate)
                     : "Not set";
+                  const dueTimeDisplay = result.task.dueTime?.trim()
+                    ? formatDueTimeDisplay(result.task.dueTime)
+                    : "";
+                  const dueDisplay = dueTimeDisplay ? `${dueDateDisplay} at ${dueTimeDisplay}` : dueDateDisplay;
 
                   return (
                     <tr
@@ -1208,7 +1373,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                       <td className="px-3 py-2 font-medium">{renderHighlightedText(result.task.title)}</td>
                       <td className="px-3 py-2">{renderHighlightedText(result.task.tag)}</td>
                       <td className="px-3 py-2">{renderHighlightedText(result.task.priority ?? "Not set")}</td>
-                      <td className="px-3 py-2">{renderHighlightedText(dueDateDisplay)}</td>
+                      <td className="px-3 py-2">{renderHighlightedText(dueDisplay)}</td>
                       <td className="px-3 py-2">{renderHighlightedText(result.day.label)}</td>
                       <td className="px-3 py-2">{renderHighlightedText(result.task.completed ? "Completed" : "Open")}</td>
                       <td className="px-3 py-2">{renderHighlightedText(result.task.description)}</td>
@@ -1392,6 +1557,78 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     );
   };
 
+  const renderSmartTaskPreviewModal = () => {
+    if (!smartTaskPreview) return null;
+
+    return (
+      <div
+        className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-900/40 p-4"
+        onClick={cancelSmartTaskPreview}
+      >
+        <div
+          className={`w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold">Smart Task Preview</h3>
+            <button
+              type="button"
+              onClick={cancelSmartTaskPreview}
+              className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-3 text-sm">
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Title</p>
+              <p className="mt-1 font-medium">{smartTaskPreview.draft.title}</p>
+            </div>
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due date</p>
+              <p className="mt-1">{smartTaskPreview.draft.dueDate?.trim() || "Not set"}</p>
+              {smartTaskPreview.draft.dueDate?.trim() ? (
+                <p className={`mt-1 text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  Parsed as {smartTaskPreview.draft.dueDate} using reference date {smartTaskPreview.referenceDate} ({smartTaskPreview.timezone})
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due time</p>
+              <p className="mt-1">{smartTaskPreview.draft.dueTime?.trim() ? formatDueTimeDisplay(smartTaskPreview.draft.dueTime) : "Not set"}</p>
+            </div>
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Description note</p>
+              <p className="mt-1 whitespace-pre-wrap">{smartTaskPreview.draft.description?.trim() || "No extra notes"}</p>
+            </div>
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Original input</p>
+              <p className="mt-1 whitespace-pre-wrap">{smartTaskPreview.sourceText}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelSmartTaskPreview}
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmSmartTaskPreview}
+              className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-900 hover:bg-slate-200"}`}
+            >
+              Create Task
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderColumns = () =>
     days.map((day, index) => {
       const visibleTaskEntries = day.tasks
@@ -1447,6 +1684,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           setActiveAddIndex={setActiveAddIndex}
           addInputRef={addInputRef}
           onAddTaskToList={addTaskToList}
+          onParseTaskInput={submitSmartTaskInput}
+          smartTaskLoading={smartTaskLoading}
+          smartTaskError={smartTaskError}
           contextMenu={contextMenu}
           contextMenuRef={contextMenuRef}
           contextMenuMoveOpen={contextMenuMoveOpen}
@@ -1463,12 +1703,15 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           setContextMenuTagColorInput={setContextMenuTagColorInput}
           contextMenuDueDateInput={contextMenuDueDateInput}
           setContextMenuDueDateInput={setContextMenuDueDateInput}
+          contextMenuDueTimeInput={contextMenuDueTimeInput}
+          setContextMenuDueTimeInput={setContextMenuDueTimeInput}
           filteredContextMenuTagSuggestions={filteredContextMenuTagSuggestions}
           setContextMenu={setContextMenu}
           contextMenuDueDateInputRef={contextMenuDueDateInputRef}
           onMoveTask={moveTask}
           onSetTaskTag={setTaskTag}
           onSetTaskDueDate={setTaskDueDate}
+          onSetTaskDueTime={setTaskDueTime}
           onArchiveTask={archiveTask}
           days={days}
         />
@@ -1576,6 +1819,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                     onChange={(e) => {
                       if (!expandedTask) return;
                       setTaskDueDate(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
+                    }}
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due time</p>
+                  <input
+                    type="time"
+                    value={activeTask?.dueTime ?? ""}
+                    onChange={(e) => {
+                      if (!expandedTask) return;
+                      setTaskDueTime(expandedTask.dayIndex, expandedTask.taskIndex, e.target.value);
                     }}
                     className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
                   />
@@ -1871,7 +2126,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                       Priority: <span className="font-medium">{entry.task.priority ?? "Not set"}</span>
                     </p>
                     <p className={darkMode ? "text-slate-300" : "text-slate-600"}>
-                      Due: <span className="font-medium">{entry.task.dueDate?.trim() ? formatDueDateDisplay(entry.task.dueDate) : "Not set"}</span>
+                      Due: <span className="font-medium">{entry.task.dueDate?.trim() ? formatDueDateDisplay(entry.task.dueDate) : "Not set"}{entry.task.dueTime?.trim() ? ` at ${formatDueTimeDisplay(entry.task.dueTime)}` : ""}</span>
                     </p>
                   </div>
 
@@ -2092,6 +2347,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       {renderExpandedTaskModal()}
       {renderAuthDialog()}
       {renderAuthNotice()}
+      {renderSmartTaskPreviewModal()}
       {renderRecurringTasksPanel()}
       {renderArchivePanel()}
       {renderArchiveUndoToast()}

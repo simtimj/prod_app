@@ -13,6 +13,7 @@ export type SupabaseTaskRow = {
   tag_color: string | null;
   description: string | null;
   due_date: string | null;
+  due_time: string | null;
   priority: Task["priority"] | null;
   created_at: string;
   updated_at: string;

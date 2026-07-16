@@ -55,6 +55,9 @@ type KanbanColumnProps = {
   setActiveAddIndex: (value: number | null) => void;
   addInputRef: React.RefObject<HTMLInputElement | null>;
   onAddTaskToList: (index: number, title: string) => void;
+  onParseTaskInput: (index: number, text: string) => Promise<void>;
+  smartTaskLoading: boolean;
+  smartTaskError: string | null;
   contextMenu: ContextMenuState | null;
   contextMenuRef: React.RefObject<HTMLDivElement | null>;
   contextMenuMoveOpen: boolean;
@@ -71,12 +74,15 @@ type KanbanColumnProps = {
   setContextMenuTagColorInput: (value: string) => void;
   contextMenuDueDateInput: string;
   setContextMenuDueDateInput: (value: string) => void;
+  contextMenuDueTimeInput: string;
+  setContextMenuDueTimeInput: (value: string) => void;
   filteredContextMenuTagSuggestions: string[];
   setContextMenu: (value: ContextMenuState | null) => void;
   contextMenuDueDateInputRef: React.RefObject<HTMLInputElement | null>;
   onMoveTask: (fromDay: number, fromTask: number, toDay: number) => void;
   onSetTaskTag: (dayIndex: number, taskIndex: number, tag: string, color?: string) => void;
   onSetTaskDueDate: (dayIndex: number, taskIndex: number, dueDate: string) => void;
+  onSetTaskDueTime: (dayIndex: number, taskIndex: number, dueTime: string) => void;
   onArchiveTask: (dayIndex: number, taskIndex: number) => void;
   days: DayColumn[];
 };
@@ -116,6 +122,9 @@ export default function KanbanColumn({
   setActiveAddIndex,
   addInputRef,
   onAddTaskToList,
+  onParseTaskInput,
+  smartTaskLoading,
+  smartTaskError,
   contextMenu,
   contextMenuRef,
   contextMenuMoveOpen,
@@ -132,12 +141,15 @@ export default function KanbanColumn({
   setContextMenuTagColorInput,
   contextMenuDueDateInput,
   setContextMenuDueDateInput,
+  contextMenuDueTimeInput,
+  setContextMenuDueTimeInput,
   filteredContextMenuTagSuggestions,
   setContextMenu,
   contextMenuDueDateInputRef,
   onMoveTask,
   onSetTaskTag,
   onSetTaskDueDate,
+  onSetTaskDueTime,
   onArchiveTask,
   days,
 }: KanbanColumnProps) {
@@ -191,6 +203,7 @@ export default function KanbanColumn({
             setContextMenuTagInput(task.tag ?? "");
             setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
             setContextMenuDueDateInput(task.dueDate ?? "");
+            setContextMenuDueTimeInput(task.dueTime ?? "");
             setContextMenu({ dayIndex: index, taskIndex, x: event.clientX, y: event.clientY });
           }}
           onMouseEnter={() => setHoveredTask({ dayIndex: index, taskIndex })}
@@ -268,7 +281,7 @@ export default function KanbanColumn({
 
     return (
       <div
-        className={`absolute left-full top-0 ml-1 w-44 rounded-md border px-1 py-1 shadow-lg ${darkMode ? "bg-[#241c3c] border-[#372a5d] text-slate-100" : "bg-white border-slate-200 text-slate-900"}`}
+        className={`absolute left-full top-0 ml-1 w-48 rounded-md border px-1 py-1 shadow-lg ${darkMode ? "bg-[#241c3c] border-[#372a5d] text-slate-100" : "bg-white border-slate-200 text-slate-900"}`}
         style={applyColor && darkMode ? { backgroundColor: hexToRgba(dayColor, 0.08), borderColor: dayColor } : applyColor ? { borderColor: dayColor } : undefined}
       >
         <div className="flex gap-1">
@@ -313,12 +326,20 @@ export default function KanbanColumn({
           className={`mt-1 w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? "bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "bg-white text-slate-900 focus:border-slate-500"}`}
           style={applyColor ? { borderColor: dayColor } : undefined}
         />
+        <input
+          type="time"
+          value={contextMenuDueTimeInput}
+          onChange={(event) => setContextMenuDueTimeInput(event.target.value)}
+          className={`mt-1 w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? "bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "bg-white text-slate-900 focus:border-slate-500"}`}
+          style={applyColor ? { borderColor: dayColor } : undefined}
+        />
         <div className="mt-2 flex items-center gap-2">
           <button
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               onSetTaskDueDate(contextMenu.dayIndex, contextMenu.taskIndex, contextMenuDueDateInput);
+              onSetTaskDueTime(contextMenu.dayIndex, contextMenu.taskIndex, contextMenuDueTimeInput);
               setContextMenuDueDateOpen(false);
             }}
             className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
@@ -331,7 +352,9 @@ export default function KanbanColumn({
             onClick={(event) => {
               event.stopPropagation();
               setContextMenuDueDateInput("");
+              setContextMenuDueTimeInput("");
               onSetTaskDueDate(contextMenu.dayIndex, contextMenu.taskIndex, "");
+              onSetTaskDueTime(contextMenu.dayIndex, contextMenu.taskIndex, "");
               setContextMenuDueDateOpen(false);
             }}
             className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
@@ -549,6 +572,34 @@ export default function KanbanColumn({
           placeholder="New task..."
           className={`w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-200 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
         />
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddTaskToList(index, newTaskInput);
+            }}
+            className="rounded-full border px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-widest transition hover:brightness-90"
+            style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void onParseTaskInput(index, newTaskInput);
+            }}
+            disabled={smartTaskLoading}
+            className="rounded-full border px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-widest transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-70"
+            style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.12), borderColor: dayColor, color: "#000" } : undefined}
+          >
+            {smartTaskLoading ? "Parsing..." : "Parse"}
+          </button>
+        </div>
+        {smartTaskError ? (
+          <p className={`text-xs ${darkMode ? "text-red-300" : "text-red-600"}`}>{smartTaskError}</p>
+        ) : null}
       </div>
     );
   };
@@ -600,7 +651,7 @@ export default function KanbanColumn({
               setActiveAddIndex(index);
               setNewTaskInput("");
             }}
-            className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition hover:brightness-90"
+            className="rounded-full border px-2.5 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.12em] transition hover:brightness-90"
             style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
           >
             + Add task

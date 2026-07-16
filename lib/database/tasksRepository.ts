@@ -10,7 +10,7 @@ type UpsertTaskParams = {
 };
 
 const TASK_SELECT_COLUMNS =
-  "id, user_id, title, completed, recurrence_enabled, recurrence_frequency, recurrence_weekdays, recurrence_month_days, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived, archived_at";
+  "id, user_id, title, completed, recurrence_enabled, recurrence_frequency, recurrence_weekdays, recurrence_month_days, tag, tag_color, description, due_date, due_time, priority, created_at, updated_at, position, archived, archived_at";
 
 export async function fetchTasksForUser(userId: string): Promise<SupabaseTaskRow[]> {
   const { data, error } = await supabase
@@ -54,6 +54,7 @@ export async function upsertTask({ task, userId, dueDate, position }: UpsertTask
       tag_color: task.tagColor ?? null,
       description: task.description ?? null,
       due_date: task.dueDate ?? dueDate,
+      due_time: task.dueTime ?? null,
       priority: task.priority ?? null,
       position,
       archived: false,

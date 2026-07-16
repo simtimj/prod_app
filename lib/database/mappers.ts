@@ -21,6 +21,7 @@ export const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
   tagColor: row.tag_color ?? undefined,
   description: row.description ?? undefined,
   dueDate: row.due_date ?? undefined,
+  dueTime: row.due_time ?? undefined,
   priority: row.priority ?? undefined,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
