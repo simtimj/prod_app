@@ -3,6 +3,7 @@ export type Task = {
   userId?: string;
   title: string;
   completed?: boolean;
+  recurrence?: TaskRecurrence;
   tag?: string;
   tagColor?: string;
   description?: string;
@@ -10,6 +11,15 @@ export type Task = {
   priority?: "Low" | "Medium" | "High";
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
+
+export type TaskRecurrence = {
+  enabled: boolean;
+  frequency: RecurrenceFrequency;
+  weekdays?: number[];
+  monthDays?: number[];
 };
 
 export type DayColumn = {

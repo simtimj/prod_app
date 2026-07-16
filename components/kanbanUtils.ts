@@ -1,5 +1,7 @@
 import { DayColumn, Task } from "./kanbanTypes";
 
+export const RECURRENCE_WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 export const lightColors: Record<string, string> = {
   Sunday: "#f5d000",
   Monday: "#9ca3af",
@@ -114,6 +116,47 @@ export function formatDueDateDisplay(dateValue?: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+export function formatRecurrenceDisplay(task: Task) {
+  if (!task.recurrence?.enabled) return "Not recurring";
+
+  const toOrdinal = (value: number) => {
+    const mod100 = value % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+    const mod10 = value % 10;
+    if (mod10 === 1) return `${value}st`;
+    if (mod10 === 2) return `${value}nd`;
+    if (mod10 === 3) return `${value}rd`;
+    return `${value}th`;
+  };
+
+  if (task.recurrence.frequency === "daily") {
+    return "Every day";
+  }
+
+  if (task.recurrence.frequency === "monthly") {
+    const monthDays = (task.recurrence.monthDays ?? [])
+      .filter((value) => Number.isInteger(value) && value >= 1 && value <= 31)
+      .sort((a, b) => a - b);
+
+    if (monthDays.length === 0) {
+      return "Every month";
+    }
+
+    return `Every month on ${monthDays.map((value) => toOrdinal(value)).join(", ")}`;
+  }
+
+  const weekdayIndexes = (task.recurrence.weekdays ?? [])
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+    .sort((a, b) => a - b);
+
+  if (weekdayIndexes.length === 0) {
+    return "Every week";
+  }
+
+  const labels = weekdayIndexes.map((index) => RECURRENCE_WEEKDAY_LABELS[index]);
+  return `Every week on ${labels.join(", ")}`;
 }
 
 export function buildDayColumns(today: Date): DayColumn[] {

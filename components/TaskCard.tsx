@@ -94,6 +94,18 @@ export default function TaskCard({
     );
   };
 
+  const renderRecurringBadge = () => {
+    if (!task.recurrence?.enabled) return null;
+
+    return (
+      <span
+        className={`ml-2 inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold ${darkMode ? "border-slate-500 text-slate-200" : "border-slate-300 text-slate-700"}`}
+      >
+        Repeat
+      </span>
+    );
+  };
+
   const renderTaskContent = () => (
     <div className="flex items-center gap-1.5">
       <label
@@ -126,6 +138,7 @@ export default function TaskCard({
           {task.title}
         </p>
       </button>
+      {renderRecurringBadge()}
       {renderTaskTag()}
     </div>
   );

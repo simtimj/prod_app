@@ -10,7 +10,7 @@ type UpsertTaskParams = {
 };
 
 const TASK_SELECT_COLUMNS =
-  "id, user_id, title, completed, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived, archived_at";
+  "id, user_id, title, completed, recurrence_enabled, recurrence_frequency, recurrence_weekdays, recurrence_month_days, tag, tag_color, description, due_date, priority, created_at, updated_at, position, archived, archived_at";
 
 export async function fetchTasksForUser(userId: string): Promise<SupabaseTaskRow[]> {
   const { data, error } = await supabase
@@ -29,12 +29,27 @@ export async function upsertTask({ task, userId, dueDate, position }: UpsertTask
   if (!task.id) return;
 
   const now = new Date().toISOString();
+  const recurrenceEnabled = Boolean(task.recurrence?.enabled);
+  const recurrenceFrequency = recurrenceEnabled ? task.recurrence?.frequency ?? "daily" : null;
+  const recurrenceWeekdays =
+    recurrenceEnabled && recurrenceFrequency === "weekly"
+      ? (task.recurrence?.weekdays?.length ? task.recurrence.weekdays : [1])
+      : null;
+  const recurrenceMonthDays =
+    recurrenceEnabled && recurrenceFrequency === "monthly"
+      ? (task.recurrence?.monthDays?.length ? task.recurrence.monthDays : [1])
+      : null;
+
   const { error } = await supabase.from("tasks").upsert(
     {
       id: task.id,
       user_id: userId,
       title: task.title,
       completed: Boolean(task.completed),
+      recurrence_enabled: recurrenceEnabled,
+      recurrence_frequency: recurrenceFrequency,
+      recurrence_weekdays: recurrenceWeekdays,
+      recurrence_month_days: recurrenceMonthDays,
       tag: task.tag ?? null,
       tag_color: task.tagColor ?? null,
       description: task.description ?? null,

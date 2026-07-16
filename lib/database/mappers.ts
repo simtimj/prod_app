@@ -9,6 +9,14 @@ export const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
   userId: row.user_id,
   title: row.title,
   completed: row.completed,
+  recurrence: row.recurrence_enabled
+    ? {
+        enabled: true,
+        frequency: row.recurrence_frequency ?? "daily",
+        weekdays: row.recurrence_frequency === "weekly" ? row.recurrence_weekdays ?? [1] : undefined,
+        monthDays: row.recurrence_frequency === "monthly" ? row.recurrence_month_days ?? [1] : undefined,
+      }
+    : undefined,
   tag: row.tag ?? undefined,
   tagColor: row.tag_color ?? undefined,
   description: row.description ?? undefined,
