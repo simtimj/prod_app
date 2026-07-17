@@ -23,9 +23,34 @@ Add these variables to your local `.env.local` file for the AI smart task parser
 ```bash
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_PARSE_TASK_MODEL=gpt-4.1-mini
+FASTAPI_PARSE_TASK_URL=http://127.0.0.1:8000/parse-task
 ```
 
 `OPENAI_PARSE_TASK_MODEL` is optional and defaults to `gpt-4.1-mini`.
+
+`FASTAPI_PARSE_TASK_URL` is optional and defaults to `http://127.0.0.1:8000/parse-task`.
+
+## FastAPI Parser Service
+
+Requests to `/api/parse-task` are forwarded to Python FastAPI through a Next.js rewrite in `next.config.ts`.
+
+Run the parser service locally:
+
+```bash
+cd backend/task-parser-api
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+.venv/bin/python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Keep the FastAPI service running while using Smart Parse in the app.
+
+From the project root, you can also run:
+
+```bash
+npm run dev:api
+```
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

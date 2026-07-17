@@ -42,6 +42,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dayRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const initialScrollAlignedRef = useRef(false);
   const ignoreScrollRef = useRef(false);
   const dragRef = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const [dragging, setDragging] = useState(false);
@@ -541,6 +542,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         if (response.status === 429 && payload?.retryAfterSeconds) {
           setSmartTaskRetryUntilMs(Date.now() + payload.retryAfterSeconds * 1000);
         }
+
+        const parseServiceUnavailable =
+          response.status === 500 && /ECONNREFUSED|Failed to proxy/i.test(rawBody);
+
+        if (parseServiceUnavailable) {
+          throw new Error(
+            "Parse service is not running. Start FastAPI on http://127.0.0.1:8000 or update FASTAPI_PARSE_TASK_URL."
+          );
+        }
+
         throw new Error(payload?.error ?? `Could not parse task. Server returned ${response.status}.`);
       }
 
@@ -1144,6 +1155,14 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         : { dayIndex, insertIndex }
     );
   };
+
+  useEffect(() => {
+    if (initialScrollAlignedRef.current || boardLoading) return;
+    if (!dayRefs.current[selectedIndex]) return;
+
+    scrollDayToStart(selectedIndex, false);
+    initialScrollAlignedRef.current = true;
+  }, [boardLoading, days, selectedIndex]);
 
   useEffect(() => {
     if (ignoreScrollRef.current) {

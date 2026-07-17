@@ -565,7 +565,11 @@ export default function KanbanColumn({
               setActiveAddIndex(null);
             }
           }}
-          onBlur={() => {
+          onBlur={(event) => {
+            const nextFocused = event.relatedTarget as Node | null;
+            if (nextFocused && event.currentTarget.parentElement?.contains(nextFocused)) {
+              return;
+            }
             setNewTaskInput("");
             setActiveAddIndex(null);
           }}
