@@ -3,23 +3,23 @@ import { DayColumn, Task } from "./kanbanTypes";
 export const RECURRENCE_WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export const lightColors: Record<string, string> = {
-  Sunday: "#f5d000",
-  Monday: "#9ca3af",
-  Tuesday: "#ff8a8a",
-  Wednesday: "#7fa7ff",
-  Thursday: "#72c38f",
-  Friday: "#e0b600",
-  Saturday: "#a56f00",
+  Sunday: "#F4C430",
+  Monday: "#DCE3F2",
+  Tuesday: "#C62828",
+  Wednesday: "#2D9CDB",
+  Thursday: "#2E8B57",
+  Friday: "#D4AF37",
+  Saturday: "#8D6E63",
 };
 
 export const darkColors: Record<string, string> = {
-  Sunday: "#cca800",
-  Monday: "#6b7280",
-  Tuesday: "#f86767",
-  Wednesday: "#5f8cff",
-  Thursday: "#4fa270",
-  Friday: "#d19c00",
-  Saturday: "#8a5a00",
+  Sunday: "#6A5A12",
+  Monday: "#2A3142",
+  Tuesday: "#421B1B",
+  Wednesday: "#18384A",
+  Thursday: "#1B3A2B",
+  Friday: "#6E5718",
+  Saturday: "#352A27",
 };
 
 export const daysOfWeek: Record<string, string> = {
