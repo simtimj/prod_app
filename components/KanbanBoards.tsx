@@ -1157,14 +1157,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   useEffect(() => {
-    if (initialScrollAlignedRef.current || boardLoading) return;
-    if (!dayRefs.current[selectedIndex]) return;
-
-    scrollDayToStart(selectedIndex, false);
-    initialScrollAlignedRef.current = true;
-  }, [boardLoading, days, selectedIndex]);
-
-  useEffect(() => {
     if (ignoreScrollRef.current) {
       ignoreScrollRef.current = false;
       return;
@@ -1329,14 +1321,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       )
     );
   };
-
-  // Ensure today is positioned at the left edge on initial mount
-  useEffect(() => {
-    if (!dayRefs.current[CENTER_INDEX] || !scrollRef.current) return;
-    requestAnimationFrame(() => {
-      scrollDayToStart(CENTER_INDEX, false);
-    });
-  }, []);
 
   const renderSearchResultsPanel = () => {
     if (!isSearching || !searchPanelOpen) return null;
@@ -1675,6 +1659,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           }}
           setDayRef={(dayIndex, element) => {
             dayRefs.current[dayIndex] = element;
+
+            if (
+              element &&
+              !initialScrollAlignedRef.current &&
+              !boardLoading &&
+              dayIndex === selectedIndex
+            ) {
+              requestAnimationFrame(() => {
+                scrollDayToStart(dayIndex, false);
+                initialScrollAlignedRef.current = true;
+              });
+            }
           }}
           visibleTaskEntries={visibleTaskEntries}
           isSearching={isSearching}
