@@ -1,7 +1,7 @@
 import type React from "react";
 
 import { Task } from "./kanbanTypes";
-import { hexToRgba } from "./kanbanUtils";
+import { formatDueDateDisplay, formatDueTimeDisplay, hexToRgba } from "./kanbanUtils";
 
 type TaskCardProps = {
   task: Task;
@@ -106,10 +106,26 @@ export default function TaskCard({
     );
   };
 
+  const renderDueBadge = () => {
+    const dueDateText = formatDueDateDisplay(task.dueDate);
+    const dueTimeText = formatDueTimeDisplay(task.dueTime);
+    if (!dueDateText && !dueTimeText) return null;
+
+    const dueText = [dueDateText, dueTimeText].filter(Boolean).join(" · ");
+
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold ${darkMode ? "border-slate-500 text-slate-200" : "border-slate-300 text-slate-700"}`}
+      >
+        Due {dueText}
+      </span>
+    );
+  };
+
   const renderTaskContent = () => (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-start gap-1.5">
       <label
-        className={`relative inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition ${darkMode ? "border-slate-500 text-slate-300" : "border-slate-400 text-slate-700"}`}
+        className={`relative mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition ${darkMode ? "border-slate-500 text-slate-300" : "border-slate-400 text-slate-700"}`}
         onClick={(event) => event.stopPropagation()}
         style={taskColor ? { color: taskColor, borderColor: hexToRgba(taskColor, darkMode ? 0.85 : 0.7) } : undefined}
       >
@@ -126,20 +142,27 @@ export default function TaskCard({
         <span className="absolute inset-0 z-0 rounded-lg bg-white transition peer-checked:bg-current" />
         <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-[0.72rem] w-[0.34rem] -translate-x-1/2 translate-y-[-56%] rotate-45 border-b-[2.6px] border-r-[2.6px] border-white opacity-0 transition peer-checked:opacity-100" />
       </label>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenExpandedTask();
-        }}
-        className="w-full text-left"
-      >
-        <p className={`${darkMode ? "text-slate-100" : "text-slate-900"} text-sm font-semibold leading-snug ${task.completed ? "line-through text-slate-500" : ""}`}>
-          {task.title}
-        </p>
-      </button>
-      {renderRecurringBadge()}
-      {renderTaskTag()}
+
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenExpandedTask();
+          }}
+          className="w-full text-left"
+        >
+          <p className={`${darkMode ? "text-slate-100" : "text-slate-900"} text-sm font-semibold leading-snug ${task.completed ? "line-through text-slate-500" : ""}`}>
+            {task.title}
+          </p>
+        </button>
+
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {renderDueBadge()}
+          {renderRecurringBadge()}
+          {renderTaskTag()}
+        </div>
+      </div>
     </div>
   );
 

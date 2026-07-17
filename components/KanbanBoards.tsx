@@ -103,7 +103,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [boardLoading, setBoardLoading] = useState(true);
   const tagSuggestionsListId = "kanban-tag-suggestions";
-  const addInputRef = useRef<HTMLInputElement | null>(null);
+  const addInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const searchPanelRef = useRef<HTMLDivElement | null>(null);

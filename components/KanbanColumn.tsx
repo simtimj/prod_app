@@ -53,7 +53,7 @@ type KanbanColumnProps = {
   newTaskInput: string;
   setNewTaskInput: (value: string) => void;
   setActiveAddIndex: (value: number | null) => void;
-  addInputRef: React.RefObject<HTMLInputElement | null>;
+  addInputRef: React.RefObject<HTMLTextAreaElement | null>;
   onAddTaskToList: (index: number, title: string) => void;
   onParseTaskInput: (index: number, text: string) => Promise<void>;
   smartTaskLoading: boolean;
@@ -549,14 +549,13 @@ export default function KanbanColumn({
 
     return (
       <div className="mt-2 space-y-2">
-        <input
+        <textarea
           ref={addInputRef}
-          type="text"
           value={newTaskInput}
           onChange={(event) => setNewTaskInput(event.target.value)}
           onKeyDown={(event) => {
             event.stopPropagation();
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
               onAddTaskToList(index, newTaskInput);
             }
@@ -573,8 +572,9 @@ export default function KanbanColumn({
             setNewTaskInput("");
             setActiveAddIndex(null);
           }}
-          placeholder="New task..."
-          className={`w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-200 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
+          rows={3}
+          placeholder="New task... (Cmd/Ctrl+Enter to save)"
+          className={`w-full resize-y rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-200 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
         />
         <div className="flex items-center justify-end gap-2">
           <button
