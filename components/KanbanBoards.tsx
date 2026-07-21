@@ -488,7 +488,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         completed: false,
         createdAt: now,
         updatedAt: now,
-        dueDate: getDayDateKeyForColumn(index),
       },
     });
 

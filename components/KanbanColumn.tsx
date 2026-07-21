@@ -555,7 +555,7 @@ export default function KanbanColumn({
           onChange={(event) => setNewTaskInput(event.target.value)}
           onKeyDown={(event) => {
             event.stopPropagation();
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               onAddTaskToList(index, newTaskInput);
             }
@@ -573,7 +573,7 @@ export default function KanbanColumn({
             setActiveAddIndex(null);
           }}
           rows={3}
-          placeholder="New task... (Cmd/Ctrl+Enter to save)"
+          placeholder="New task... (Enter to save, Shift+Enter for newline)"
           className={`w-full resize-y rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-200 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
         />
         <div className="flex items-center justify-end gap-2">

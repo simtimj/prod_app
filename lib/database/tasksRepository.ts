@@ -5,7 +5,7 @@ import { SupabaseTaskRow } from "@/lib/database/types";
 type UpsertTaskParams = {
   task: Task;
   userId: string;
-  dueDate: string;
+  dueDate?: string;
   position: number;
 };
 
@@ -46,7 +46,7 @@ async function toApiError(response: Response, fallback: string): Promise<Error> 
   return new Error(message);
 }
 
-function normalizeTaskForApi(task: Task, fallbackDueDate: string) {
+function normalizeTaskForApi(task: Task) {
   const recurrenceEnabled = Boolean(task.recurrence?.enabled);
   const recurrenceFrequency = recurrenceEnabled ? task.recurrence?.frequency ?? "daily" : null;
   const recurrenceWeekdays =
@@ -73,7 +73,7 @@ function normalizeTaskForApi(task: Task, fallbackDueDate: string) {
     tag: task.tag ?? null,
     tag_color: task.tagColor ?? null,
     description: task.description ?? null,
-    due_date: task.dueDate ?? fallbackDueDate,
+    due_date: task.dueDate ?? null,
     due_time: task.dueTime ?? null,
     priority: task.priority ?? null,
     created_at: task.createdAt ?? null,
@@ -99,11 +99,13 @@ export async function fetchTasksForUser(userId: string): Promise<SupabaseTaskRow
 export async function upsertTask({ task, dueDate, position }: UpsertTaskParams): Promise<void> {
   if (!task.id) return;
 
+  void dueDate;
+
   const response = await fetch("/api/tasks/upsert", {
     method: "POST",
     headers: await getAuthHeaders(),
     body: JSON.stringify({
-      task: normalizeTaskForApi(task, dueDate),
+      task: normalizeTaskForApi(task),
       position,
     }),
   });
