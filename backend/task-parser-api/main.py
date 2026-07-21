@@ -5,12 +5,13 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from openai import APIError, OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from supabase import Client, create_client
 
 SERVICE_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SERVICE_DIR.parent.parent
@@ -20,7 +21,7 @@ load_dotenv(SERVICE_DIR / ".env", override=False)
 load_dotenv(WORKSPACE_ROOT / ".env", override=False)
 load_dotenv(WORKSPACE_ROOT / ".env.local", override=False)
 
-app = FastAPI(title="Task Parse Service", version="1.0.0")
+app = FastAPI(title="Task API Service", version="1.0.0")
 
 MODEL_NAME = os.getenv("OPENAI_PARSE_TASK_MODEL", "gpt-4.1-mini")
 PARSE_MIN_INTERVAL_MS = 1800
@@ -45,6 +46,15 @@ Rules:
 8) Never invent dates if unclear.
 """
 
+TASK_SELECT_COLUMNS = (
+    "id, user_id, title, completed, recurrence_enabled, recurrence_frequency, "
+    "recurrence_weekdays, recurrence_month_days, tag, tag_color, description, "
+    "due_date, due_time, priority, created_at, updated_at, position, archived, archived_at"
+)
+
+Priority = Literal["Low", "Medium", "High"]
+RecurrenceFrequency = Literal["daily", "weekly", "monthly"]
+
 
 class ParseTaskRequest(BaseModel):
     text: str
@@ -68,6 +78,77 @@ class ModelParsedTask(BaseModel):
     dueDate: Optional[str] = None
     dueTime: Optional[str] = None
     description: Optional[str] = None
+
+
+class TaskRow(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    completed: bool
+    recurrence_enabled: bool
+    recurrence_frequency: Optional[RecurrenceFrequency] = None
+    recurrence_weekdays: Optional[list[int]] = None
+    recurrence_month_days: Optional[list[int]] = None
+    tag: Optional[str] = None
+    tag_color: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    priority: Optional[Priority] = None
+    created_at: str
+    updated_at: str
+    position: int
+    archived: bool
+    archived_at: Optional[str] = None
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskRow]
+
+
+class TaskUpsertPayload(BaseModel):
+    id: str
+    title: str
+    completed: bool = False
+    recurrence_enabled: bool = False
+    recurrence_frequency: Optional[RecurrenceFrequency] = None
+    recurrence_weekdays: Optional[list[int]] = None
+    recurrence_month_days: Optional[list[int]] = None
+    tag: Optional[str] = None
+    tag_color: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    priority: Optional[Priority] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class UpsertTaskRequest(BaseModel):
+    task: TaskUpsertPayload
+    position: int = Field(ge=0)
+
+
+class ReorderItem(BaseModel):
+    task_id: str
+    due_date: str
+    position: int = Field(ge=0)
+
+
+class ReorderTasksRequest(BaseModel):
+    updates: list[ReorderItem]
+
+
+class ArchiveTaskRequest(BaseModel):
+    archived: bool
+
+
+class OkResponse(BaseModel):
+    ok: bool = True
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def get_openai_client() -> OpenAI:
@@ -95,6 +176,193 @@ def is_real_calendar_date(value: str) -> bool:
 
 def is_valid_time(value: str) -> bool:
     return bool(re.fullmatch(r"([01][0-9]|2[0-3]):[0-5][0-9]", value))
+
+
+def get_supabase_admin() -> Client:
+    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not supabase_url or not service_role_key:
+        raise HTTPException(status_code=500, detail="Missing Supabase backend credentials.")
+    return create_client(supabase_url, service_role_key)
+
+
+def extract_bearer_token(authorization: Optional[str]) -> str:
+    value = (authorization or "").strip()
+    if not value.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header.")
+    token = value.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+    return token
+
+
+def get_current_user_id(authorization: Optional[str]) -> str:
+    token = extract_bearer_token(authorization)
+    client = get_supabase_admin()
+
+    try:
+        result = client.auth.get_user(jwt=token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid auth token.") from exc
+
+    user = getattr(result, "user", None)
+    if user is None and isinstance(result, dict):
+        user = result.get("user")
+
+    user_id: Optional[str]
+    if user is None:
+        user_id = None
+    elif isinstance(user, dict):
+        user_id = user.get("id")
+    else:
+        user_id = getattr(user, "id", None)
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid auth token.")
+
+    return str(user_id)
+
+
+def validate_task_payload(task: TaskUpsertPayload) -> None:
+    title = task.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Task title is required.")
+
+    if task.due_date and not is_real_calendar_date(task.due_date):
+        raise HTTPException(status_code=400, detail="due_date must be a real YYYY-MM-DD date.")
+
+    if task.due_time and not is_valid_time(task.due_time):
+        raise HTTPException(status_code=400, detail="due_time must be HH:MM (24-hour).")
+
+    if not task.recurrence_enabled:
+        return
+
+    if task.recurrence_frequency is None:
+        raise HTTPException(status_code=400, detail="recurrence_frequency is required when recurrence is enabled.")
+
+    if task.recurrence_frequency == "weekly":
+        weekdays = task.recurrence_weekdays or []
+        if not weekdays:
+            raise HTTPException(status_code=400, detail="recurrence_weekdays is required for weekly recurrence.")
+        if any((not isinstance(value, int) or value < 0 or value > 6) for value in weekdays):
+            raise HTTPException(status_code=400, detail="recurrence_weekdays values must be between 0 and 6.")
+
+    if task.recurrence_frequency == "monthly":
+        month_days = task.recurrence_month_days or []
+        if not month_days:
+            raise HTTPException(status_code=400, detail="recurrence_month_days is required for monthly recurrence.")
+        if any((not isinstance(value, int) or value < 1 or value > 31) for value in month_days):
+            raise HTTPException(status_code=400, detail="recurrence_month_days values must be between 1 and 31.")
+
+
+@app.get("/tasks", response_model=TaskListResponse)
+def list_tasks(
+    includeArchived: bool = Query(default=True),
+    authorization: Optional[str] = Header(default=None),
+) -> TaskListResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+
+    query = (
+        client.table("tasks")
+        .select(TASK_SELECT_COLUMNS)
+        .eq("user_id", user_id)
+        .order("archived", desc=False)
+        .order("position", desc=False)
+        .order("created_at", desc=False)
+    )
+
+    if not includeArchived:
+        query = query.eq("archived", False)
+
+    result = query.execute()
+    rows = result.data or []
+    return TaskListResponse(tasks=rows)
+
+
+@app.post("/tasks/upsert", response_model=OkResponse)
+def upsert_task(
+    body: UpsertTaskRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> OkResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+
+    validate_task_payload(body.task)
+    task = body.task
+    current_time = now_iso()
+
+    payload: dict[str, Any] = {
+        "id": task.id,
+        "user_id": user_id,
+        "title": task.title.strip(),
+        "completed": bool(task.completed),
+        "recurrence_enabled": bool(task.recurrence_enabled),
+        "recurrence_frequency": task.recurrence_frequency if task.recurrence_enabled else None,
+        "recurrence_weekdays": task.recurrence_weekdays if task.recurrence_enabled and task.recurrence_frequency == "weekly" else None,
+        "recurrence_month_days": task.recurrence_month_days if task.recurrence_enabled and task.recurrence_frequency == "monthly" else None,
+        "tag": task.tag,
+        "tag_color": task.tag_color,
+        "description": task.description,
+        "due_date": task.due_date,
+        "due_time": task.due_time,
+        "priority": task.priority,
+        "position": body.position,
+        "archived": False,
+        "archived_at": None,
+        "created_at": task.created_at or current_time,
+        "updated_at": task.updated_at or current_time,
+    }
+
+    client.table("tasks").upsert(payload, on_conflict="id").execute()
+    return OkResponse()
+
+
+@app.post("/tasks/reorder", response_model=OkResponse)
+def reorder_tasks(
+    body: ReorderTasksRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> OkResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+
+    if not body.updates:
+        return OkResponse()
+
+    for item in body.updates:
+        if not is_real_calendar_date(item.due_date):
+            raise HTTPException(status_code=400, detail="Each due_date must be a real YYYY-MM-DD date.")
+
+        client.table("tasks").update(
+            {
+                "due_date": item.due_date,
+                "position": item.position,
+                "updated_at": now_iso(),
+            }
+        ).eq("id", item.task_id).eq("user_id", user_id).execute()
+
+    return OkResponse()
+
+
+@app.post("/tasks/{task_id}/archive", response_model=OkResponse)
+def set_task_archive_state(
+    task_id: str,
+    body: ArchiveTaskRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> OkResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+
+    archived = bool(body.archived)
+    client.table("tasks").update(
+        {
+            "archived": archived,
+            "archived_at": now_iso() if archived else None,
+            "updated_at": now_iso(),
+        }
+    ).eq("id", task_id).eq("user_id", user_id).execute()
+
+    return OkResponse()
 
 
 def normalize_model_result(value: ModelParsedTask) -> ParseTaskResponse:

@@ -3,11 +3,19 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   async rewrites() {
-    const fastApiParseTaskUrl = process.env.FASTAPI_PARSE_TASK_URL ?? "http://127.0.0.1:8000/parse-task";
+    const fastApiBaseUrl = (process.env.FASTAPI_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
     return [
       {
         source: "/api/parse-task",
-        destination: fastApiParseTaskUrl,
+        destination: `${fastApiBaseUrl}/parse-task`,
+      },
+      {
+        source: "/api/tasks",
+        destination: `${fastApiBaseUrl}/tasks`,
+      },
+      {
+        source: "/api/tasks/:path*",
+        destination: `${fastApiBaseUrl}/tasks/:path*`,
       },
     ];
   },
