@@ -81,7 +81,8 @@ function normalizeTaskForApi(task: Task, fallbackDueDate: string) {
   };
 }
 
-export async function fetchTasksForUser(_userId: string): Promise<SupabaseTaskRow[]> {
+export async function fetchTasksForUser(userId: string): Promise<SupabaseTaskRow[]> {
+  void userId;
   const response = await fetch("/api/tasks?includeArchived=true", {
     method: "GET",
     headers: await getAuthHeaders(),

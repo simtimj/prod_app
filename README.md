@@ -5,7 +5,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 First, run the development server:
 
 ```bash
-npm run dev
+npm run dev:up
 # or
 yarn dev
 # or
@@ -15,6 +15,18 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+Check status of running frontend/backend services:
+
+```bash
+npm run dev:status
+```
+
+Stop both services and free ports 3000/8000:
+
+```bash
+npm run dev:down
+```
 
 ## Environment Variables
 
@@ -50,6 +62,12 @@ From the project root, you can also run:
 
 ```bash
 npm run dev:api
+```
+
+If you only want the frontend (without auto-starting backend):
+
+```bash
+npm run dev
 ```
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.

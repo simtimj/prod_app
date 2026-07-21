@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 import re
 import time
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from openai import APIError, OpenAI
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
@@ -22,6 +23,10 @@ load_dotenv(WORKSPACE_ROOT / ".env", override=False)
 load_dotenv(WORKSPACE_ROOT / ".env.local", override=False)
 
 app = FastAPI(title="Task API Service", version="1.0.0")
+
+logger = logging.getLogger("task_api")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 
 MODEL_NAME = os.getenv("OPENAI_PARSE_TASK_MODEL", "gpt-4.1-mini")
 PARSE_MIN_INTERVAL_MS = 1800
@@ -147,6 +152,12 @@ class OkResponse(BaseModel):
     ok: bool = True
 
 
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    utcTime: str
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -179,10 +190,29 @@ def is_valid_time(value: str) -> bool:
 
 
 def get_supabase_admin() -> Client:
-    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    # Accept frontend URL var as fallback to reduce local-env duplication.
+    supabase_url = (
+        os.getenv("SUPABASE_URL", "").strip()
+        or os.getenv("NEXT_PUBLIC_SUPABASE_URL", "").strip()
+    )
     service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-    if not supabase_url or not service_role_key:
-        raise HTTPException(status_code=500, detail="Missing Supabase backend credentials.")
+
+    missing_fields: list[str] = []
+    if not supabase_url:
+        missing_fields.append("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)")
+    if not service_role_key:
+        missing_fields.append("SUPABASE_SERVICE_ROLE_KEY")
+
+    if missing_fields:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Missing Supabase backend credentials: "
+                + ", ".join(missing_fields)
+                + ". Note: NEXT_PUBLIC_SUPABASE_ANON_KEY is not a service-role key and cannot be used here."
+            ),
+        )
+
     return create_client(supabase_url, service_role_key)
 
 
@@ -253,6 +283,31 @@ def validate_task_payload(task: TaskUpsertPayload) -> None:
             raise HTTPException(status_code=400, detail="recurrence_month_days is required for monthly recurrence.")
         if any((not isinstance(value, int) or value < 1 or value > 31) for value in month_days):
             raise HTTPException(status_code=400, detail="recurrence_month_days values must be between 1 and 31.")
+
+
+@app.middleware("http")
+async def log_task_route_requests(request: Request, call_next):
+    should_log = request.url.path.startswith("/tasks")
+    start_ms = time.perf_counter() if should_log else 0.0
+
+    response = await call_next(request)
+
+    if should_log:
+        elapsed_ms = (time.perf_counter() - start_ms) * 1000
+        logger.info(
+            "request method=%s path=%s status=%s durationMs=%.2f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+
+    return response
+
+
+@app.get("/health", response_model=HealthResponse)
+def health_check() -> HealthResponse:
+    return HealthResponse(status="ok", service="task-api", utcTime=now_iso())
 
 
 @app.get("/tasks", response_model=TaskListResponse)
