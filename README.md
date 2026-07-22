@@ -49,7 +49,7 @@ Requests to `/api/parse-task` are forwarded to Python FastAPI through a Next.js 
 Run the parser service locally:
 
 ```bash
-cd backend/api
+cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

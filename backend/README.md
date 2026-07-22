@@ -7,7 +7,7 @@ This service owns backend logic for:
 
 ## Required Environment Variables
 
-Set these in `backend/api/.env` or project-level `.env.local`:
+Set these in `backend/.env` or project-level `.env.local`:
 
 ```bash
 SUPABASE_URL=your_supabase_project_url
@@ -27,7 +27,7 @@ npm run dev:api
 Or directly:
 
 ```bash
-cd backend/api
+cd backend
 .venv/bin/python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -36,7 +36,7 @@ cd backend/api
 With the API running:
 
 ```bash
-cd backend/api
+cd backend
 chmod +x scripts/smoke_test.sh
 ./scripts/smoke_test.sh
 ```
