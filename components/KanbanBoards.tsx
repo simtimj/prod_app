@@ -40,6 +40,7 @@ import {
 } from "@/lib/database/settingsRepository";
 import {
   fetchTasksForUser,
+  deleteTaskForUser,
   updateTaskArchiveState,
   upsertTask,
 } from "@/lib/database/tasksRepository";
@@ -156,6 +157,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [recentlyArchivedTask, setRecentlyArchivedTask] = useState<ArchivedTaskSnapshot | null>(null);
   const [archivedTasks, setArchivedTasks] = useState<ArchivedTaskEntry[]>([]);
+  const [archiveTaskContextMenu, setArchiveTaskContextMenu] = useState<{ entryIndex: number; x: number; y: number } | null>(null);
   const themeColors = darkMode ? darkColors : lightColors;
   const [newTaskInput, setNewTaskInput] = useState<string>("");
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
@@ -631,17 +633,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       ) {
         setContextMenu(null);
         setSavedListContextMenu(null);
+        setArchiveTaskContextMenu(null);
       }
     };
 
-    if (contextMenu || savedListContextMenu) {
+    if (contextMenu || savedListContextMenu || archiveTaskContextMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [contextMenu, savedListContextMenu]);
+  }, [archiveTaskContextMenu, contextMenu, savedListContextMenu]);
 
   useEffect(() => {
     const handleClickOutsideSearch = (event: MouseEvent) => {
@@ -2597,6 +2600,57 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setSavedListContextMenu(null);
   };
 
+  const restoreArchivedTaskToToday = (entryIndex: number) => {
+    const entry = archivedTasks[entryIndex];
+    if (!entry) return;
+
+    const taskId = entry.taskId ?? entry.task.id;
+    const todayDateKey = toDateKey(today);
+    const todayDayIndex = findDayIndexByDateKey(days, todayDateKey);
+    if (todayDayIndex < 0) return;
+
+    const restoredAt = new Date().toISOString();
+    const restoredTask: Task = {
+      ...entry.task,
+      dueDate: todayDateKey,
+      updatedAt: restoredAt,
+    };
+
+    const nextDays = days.map((day) => ({ ...day, tasks: [...day.tasks] }));
+    nextDays[todayDayIndex].tasks.push(restoredTask);
+
+    setDays(nextDays);
+    setArchivedTasks((currentArchived) => currentArchived.filter((_, currentIndex) => currentIndex !== entryIndex));
+    setArchiveTaskContextMenu(null);
+    setRecentlyArchivedTask((current) => (current?.taskId && current.taskId === taskId ? null : current));
+
+    if (currentUserId && taskId) {
+      void upsertTask({ task: restoredTask, userId: currentUserId, dueDate: todayDateKey, position: nextDays[todayDayIndex].tasks.length - 1 }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not restore the archived task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+  };
+
+  const deleteArchivedTask = (entryIndex: number) => {
+    const entry = archivedTasks[entryIndex];
+    if (!entry) return;
+
+    const taskId = entry.taskId ?? entry.task.id;
+    setArchivedTasks((currentArchived) => currentArchived.filter((_, currentIndex) => currentIndex !== entryIndex));
+    setArchiveTaskContextMenu(null);
+    setRecentlyArchivedTask((current) => (current?.taskId && current.taskId === taskId ? null : current));
+
+    if (currentUserId && taskId) {
+      void deleteTaskForUser(taskId).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not delete the archived task.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+  };
+
   const addTaskToActiveList = () => {
     const title = newListTaskInput.trim();
     if (!title) return;
@@ -2796,17 +2850,30 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                     saveEditedTask={saveEditingListTask}
                     cancelEditing={cancelEditingListTask}
                     onOpenExpandedTask={() => {
+                      if (activeListId === ARCHIVE_LIST_ID) return;
                       if (!canManageActiveListTasks) return;
                       openExpandedSavedListTask(activeListId, taskIndex);
                     }}
                     onToggleCompleted={() => {
+                      if (activeListId === ARCHIVE_LIST_ID) return;
                       if (!canManageActiveListTasks) return;
                       toggleSavedListTaskCompleted(activeListId, taskIndex);
                     }}
                     onContextMenu={(event) => {
-                      if (!canManageActiveListTasks) return;
                       event.preventDefault();
                       event.stopPropagation();
+                      if (activeListId === ARCHIVE_LIST_ID) {
+                        setContextMenu(null);
+                        setContextMenuMoveOpen(false);
+                        setContextMenuTagOpen(false);
+                        setContextMenuSavedTagsOpen(false);
+                        setContextMenuDueDateOpen(false);
+                        setSavedListContextMenu(null);
+                        setArchiveTaskContextMenu({ entryIndex: taskIndex, x: event.clientX, y: event.clientY });
+                        return;
+                      }
+
+                      if (!canManageActiveListTasks) return;
                       setContextMenu(null);
                       setContextMenuMoveOpen(false);
                       setContextMenuTagOpen(false);
@@ -3836,7 +3903,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     return (
       <div
         className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
-        onClick={() => setArchivePanelOpen(false)}
+        onClick={() => {
+          setArchiveTaskContextMenu(null);
+          setArchivePanelOpen(false);
+        }}
       >
         <div
           className={`w-full max-w-4xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
@@ -3851,7 +3921,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             </div>
             <button
               type="button"
-              onClick={() => setArchivePanelOpen(false)}
+              onClick={() => {
+                setArchiveTaskContextMenu(null);
+                setArchivePanelOpen(false);
+              }}
               className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
             >
               Close
@@ -3864,10 +3937,17 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             </div>
           ) : (
             <div className="mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
-              {archivedTasks.map((entry) => (
+              {archivedTasks.map((entry, entryIndex) => (
                 <article
                   key={entry.id}
                   className={`rounded-xl border p-3 ${darkMode ? "border-[#3f3361] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setContextMenu(null);
+                    setSavedListContextMenu(null);
+                    setArchiveTaskContextMenu({ entryIndex, x: event.clientX, y: event.clientY });
+                  }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -3898,6 +3978,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               ))}
             </div>
           )}
+
         </div>
       </div>
     );
@@ -4260,6 +4341,52 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     );
   };
 
+  const renderArchiveTaskContextMenu = () => {
+    if (!archiveTaskContextMenu) return null;
+
+    return (
+      <div
+        ref={contextMenuRef}
+        className="fixed z-[90] overflow-visible"
+        style={{ top: archiveTaskContextMenu.y, left: archiveTaskContextMenu.x }}
+        onMouseDown={() => {
+          suppressNextViewsCloseRef.current = true;
+        }}
+      >
+        <div className={`relative rounded-xl border shadow-lg ${darkMode ? "bg-[#241c3c] border-slate-700 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}>
+          <div className="relative flex flex-col items-stretch overflow-hidden rounded-xl">
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                restoreArchivedTaskToToday(archiveTaskContextMenu.entryIndex);
+              }}
+              className={`w-full border-b ${darkMode ? "border-slate-700" : "border-slate-300"} px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Unarchive To Today
+            </button>
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                deleteArchivedTask(archiveTaskContextMenu.entryIndex);
+              }}
+              className={`w-full px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
 
   return (
     <div className="space-y-0">
@@ -4402,6 +4529,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       {renderExpandedTaskModal()}
       {renderExpandedSavedListTaskModal()}
       {renderSavedListContextMenu()}
+      {renderArchiveTaskContextMenu()}
       {renderAuthDialog()}
       {renderAuthNotice()}
       {renderSmartTaskPreviewModal()}

@@ -731,6 +731,19 @@ def set_task_archive_state(
     return OkResponse()
 
 
+@app.delete("/tasks/{task_id}", response_model=OkResponse)
+def delete_task(
+    task_id: str,
+    authorization: Optional[str] = Header(default=None),
+) -> OkResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+
+    client.table("tasks").delete().eq("id", task_id).eq("user_id", user_id).execute()
+
+    return OkResponse()
+
+
 def normalize_model_result(value: ModelParsedTask) -> ParseTaskResponse:
     normalized_title = value.title.strip()
     normalized_due_date = (value.dueDate or "").strip()

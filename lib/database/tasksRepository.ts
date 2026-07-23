@@ -126,3 +126,14 @@ export async function updateTaskArchiveState(taskId: string, _userId: string, ar
     throw await toApiError(response, "Could not update archive state.");
   }
 }
+
+export async function deleteTaskForUser(taskId: string): Promise<void> {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw await toApiError(response, "Could not delete task.");
+  }
+}
