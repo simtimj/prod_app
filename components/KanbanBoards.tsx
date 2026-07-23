@@ -311,6 +311,14 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const goToday = () => {
+    const now = new Date();
+    const todayDateKey = toDateKey(now);
+    preferredDateKeyRef.current = todayDateKey;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, todayDateKey);
+    }
+    setToday(now);
+    ignoreScrollRef.current = true;
     setSelectedIndex(CENTER_INDEX);
   };
 
