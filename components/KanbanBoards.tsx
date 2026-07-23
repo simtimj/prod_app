@@ -45,9 +45,14 @@ type SavedList = {
 
 const LAST_VIEWED_DATE_STORAGE_KEY = "kanban:last-viewed-date";
 const SAVED_LISTS_STORAGE_KEY = "kanban:saved-lists-v1";
+const LIST_PANEL_WIDTH_STORAGE_KEY = "kanban:list-panel-width";
 const BACKLOG_LIST_ID = "backlog";
 const RECURRING_LIST_ID = "recurring";
 const ARCHIVE_LIST_ID = "archive";
+const DEFAULT_LIST_PANEL_WIDTH_PX = 392;
+const MIN_LIST_PANEL_WIDTH_PX = 320;
+const MAX_LIST_PANEL_WIDTH_PX = 720;
+const COLLAPSED_LIST_RAIL_WIDTH_PX = 128;
 
 function createDefaultSavedLists(): SavedList[] {
   return [
@@ -85,6 +90,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [darkMode, setDarkMode] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [optionsMenuPosition, setOptionsMenuPosition] = useState<{ top: number; left: number; minWidth: number } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsMenuPosition, setSettingsMenuPosition] = useState<{ top: number; left: number; minWidth: number } | null>(null);
   const [recurringPanelOpen, setRecurringPanelOpen] = useState(false);
   const [archivePanelOpen, setArchivePanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -141,14 +149,157 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const searchPanelRef = useRef<HTMLDivElement | null>(null);
   const topMenusRef = useRef<HTMLDivElement | null>(null);
+  const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const listsPanelRef = useRef<HTMLDivElement | null>(null);
   const archiveUndoRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
+  const [draggingListTabId, setDraggingListTabId] = useState<string | null>(null);
   const [savedLists, setSavedLists] = useState<SavedList[]>(() => createDefaultSavedLists());
   const [activeListId, setActiveListId] = useState<string>(BACKLOG_LIST_ID);
   const [newListName, setNewListName] = useState("");
   const [isCreatingList, setIsCreatingList] = useState(false);
+  const [listDetailMode, setListDetailMode] = useState<"hidden" | "list" | "create">("hidden");
+  const [listPanelWidthPx, setListPanelWidthPx] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_LIST_PANEL_WIDTH_PX;
+
+    const rawWidth = window.localStorage.getItem(LIST_PANEL_WIDTH_STORAGE_KEY);
+    const parsedWidth = rawWidth ? Number.parseInt(rawWidth, 10) : Number.NaN;
+
+    if (!Number.isFinite(parsedWidth)) return DEFAULT_LIST_PANEL_WIDTH_PX;
+
+    return Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, parsedWidth));
+  });
+  const [listNameTooltip, setListNameTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const newListInputRef = useRef<HTMLInputElement | null>(null);
+  const listNameTooltipDelayRef = useRef<number | null>(null);
+  const listPanelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const isSystemListId = (listId: string) =>
+    listId === BACKLOG_LIST_ID || listId === RECURRING_LIST_ID || listId === ARCHIVE_LIST_ID;
+
+  const positionOptionsMenu = () => {
+    const buttonRect = optionsButtonRef.current?.getBoundingClientRect();
+    if (!buttonRect) return;
+
+    setOptionsMenuPosition({
+      top: buttonRect.bottom + 8,
+      left: Math.max(12, buttonRect.right - 176),
+      minWidth: Math.max(176, buttonRect.width),
+    });
+  };
+
+  const openOptionsMenu = () => {
+    positionOptionsMenu();
+    setOptionsOpen(true);
+  };
+
+  const closeOptionsMenu = () => {
+    setOptionsOpen(false);
+    setOptionsMenuPosition(null);
+  };
+
+  const positionSettingsMenu = () => {
+    const buttonRect = settingsButtonRef.current?.getBoundingClientRect();
+    if (!buttonRect) return;
+
+    setSettingsMenuPosition({
+      top: buttonRect.bottom + 8,
+      left: Math.max(12, buttonRect.right - 176),
+      minWidth: Math.max(176, buttonRect.width),
+    });
+  };
+
+  const openSettingsMenu = () => {
+    positionSettingsMenu();
+    setSettingsOpen(true);
+  };
+
+  const closeSettingsMenu = () => {
+    setSettingsOpen(false);
+    setSettingsMenuPosition(null);
+  };
+
+  const saveListPanelWidthPreference = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LIST_PANEL_WIDTH_STORAGE_KEY, String(Math.round(listPanelWidthPx)));
+  };
+
+  const resetListPanelSize = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(LIST_PANEL_WIDTH_STORAGE_KEY);
+    }
+    setListPanelWidthPx(DEFAULT_LIST_PANEL_WIDTH_PX);
+  };
+
+  const handleListPanelResizeMouseMove = useCallback((event: MouseEvent) => {
+    const resizeState = listPanelResizeRef.current;
+    if (!resizeState) return;
+
+    const deltaX = resizeState.startX - event.clientX;
+    const nextWidth = Math.max(
+      MIN_LIST_PANEL_WIDTH_PX,
+      Math.min(MAX_LIST_PANEL_WIDTH_PX, resizeState.startWidth + deltaX)
+    );
+    setListPanelWidthPx(nextWidth);
+  }, []);
+
+  const handleListPanelResizeMouseUp = useCallback(() => {
+    if (!listPanelResizeRef.current) return;
+    listPanelResizeRef.current = null;
+    window.removeEventListener("mousemove", handleListPanelResizeMouseMove);
+    window.removeEventListener("mouseup", handleListPanelResizeMouseUp);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  }, [handleListPanelResizeMouseMove]);
+
+  const startListPanelResize = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (listDetailMode === "hidden") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    listPanelResizeRef.current = {
+      startX: event.clientX,
+      startWidth: listPanelWidthPx,
+    };
+
+    window.addEventListener("mousemove", handleListPanelResizeMouseMove);
+    window.addEventListener("mouseup", handleListPanelResizeMouseUp);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ew-resize";
+  };
+
+  const showListNameTooltipWithDelay = (text: string, event: React.MouseEvent<HTMLButtonElement>) => {
+    if (listNameTooltipDelayRef.current !== null) {
+      window.clearTimeout(listNameTooltipDelayRef.current);
+    }
+
+    const { clientX, clientY } = event;
+    listNameTooltipDelayRef.current = window.setTimeout(() => {
+      setListNameTooltip({ text, x: clientX + 10, y: clientY + 10 });
+    }, 240);
+  };
+
+  const updateListNameTooltipPosition = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setListNameTooltip((current) =>
+      current
+        ? {
+            ...current,
+            x: event.clientX + 10,
+            y: event.clientY + 10,
+          }
+        : current
+    );
+  };
+
+  const hideListNameTooltip = () => {
+    if (listNameTooltipDelayRef.current !== null) {
+      window.clearTimeout(listNameTooltipDelayRef.current);
+      listNameTooltipDelayRef.current = null;
+    }
+    setListNameTooltip(null);
+  };
 
   const savedTagSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -179,33 +330,19 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    try {
-      const raw = window.localStorage.getItem(SAVED_LISTS_STORAGE_KEY);
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw) as SavedList[];
-      if (!Array.isArray(parsed)) return;
-
-      const cleaned = parsed
-        .filter((list) => typeof list?.id === "string" && typeof list?.name === "string" && Array.isArray(list?.tasks))
-        .map((list) => ({
-          id: list.id,
-          name: list.name,
-          tasks: list.tasks,
-        }));
-
-      const hasBacklog = cleaned.some((list) => list.id === BACKLOG_LIST_ID);
-      setSavedLists(hasBacklog ? cleaned : [...createDefaultSavedLists(), ...cleaned]);
-    } catch {
-      setSavedLists(createDefaultSavedLists());
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     window.localStorage.setItem(SAVED_LISTS_STORAGE_KEY, JSON.stringify(savedLists));
   }, [savedLists]);
+
+  useEffect(() => {
+    return () => {
+      if (listNameTooltipDelayRef.current !== null) {
+        window.clearTimeout(listNameTooltipDelayRef.current);
+      }
+
+      window.removeEventListener("mousemove", handleListPanelResizeMouseMove);
+      window.removeEventListener("mouseup", handleListPanelResizeMouseUp);
+    };
+  }, [handleListPanelResizeMouseMove, handleListPanelResizeMouseUp]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -279,6 +416,13 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   }, [editingTask]);
 
   useEffect(() => {
+    if (!isCreatingList || !newListInputRef.current) return;
+
+    newListInputRef.current.focus();
+    newListInputRef.current.select();
+  }, [isCreatingList]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
         contextMenuRef.current &&
@@ -324,18 +468,149 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         !topMenusRef.current.contains(event.target as Node)
       ) {
         setViewsOpen(false);
-        setOptionsOpen(false);
+        closeOptionsMenu();
+        closeSettingsMenu();
       }
     };
 
-    if (viewsOpen || optionsOpen) {
+    document.addEventListener("mousedown", handleClickOutsideTopMenus);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutsideTopMenus);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutsideArchiveUndo = (event: MouseEvent) => {
+      if (
+        archiveUndoRef.current &&
+        !archiveUndoRef.current.contains(event.target as Node)
+      ) {
+        setRecentlyArchivedTask(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutsideArchiveUndo);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutsideArchiveUndo);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleResize = () => {
+      const dayWidth = dayRefs.current[CENTER_INDEX]?.getBoundingClientRect().width;
+      if (!dayWidth || dayWidth <= 0) return;
+
+      const targetLeft = dayWidth * CENTER_INDEX;
+      if (scrollRef.current) {
+        scrollRef.current.scrollLeft = targetLeft;
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!optionsOpen) return;
+
+    const handleWindowChange = () => positionOptionsMenu();
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [optionsOpen]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+
+    const handleWindowChange = () => positionSettingsMenu();
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (activeAddIndex !== null && addInputRef.current) {
+      addInputRef.current.focus();
+    }
+  }, [activeAddIndex]);
+
+  useEffect(() => {
+    if (editingTask !== null && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  }, [editingTask]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        contextMenuRef.current &&
+        !contextMenuRef.current.contains(event.target as Node)
+      ) {
+        setContextMenu(null);
+      }
+    };
+
+    if (contextMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    const handleClickOutsideSearch = (event: MouseEvent) => {
+      if (
+        searchPanelRef.current &&
+        !searchPanelRef.current.contains(event.target as Node)
+      ) {
+        setSearchPanelOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutsideSearch);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutsideSearch);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutsideTopMenus = (event: MouseEvent) => {
+      if (listsPanelRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      if (
+        topMenusRef.current &&
+        !topMenusRef.current.contains(event.target as Node)
+      ) {
+        setViewsOpen(false);
+        closeOptionsMenu();
+        closeSettingsMenu();
+      }
+    };
+
+    if (viewsOpen || optionsOpen || settingsOpen) {
       document.addEventListener("mousedown", handleClickOutsideTopMenus);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutsideTopMenus);
     };
-  }, [viewsOpen, optionsOpen]);
+  }, [viewsOpen, optionsOpen, settingsOpen]);
 
   useEffect(() => {
     if (!recentlyArchivedTask) return;
@@ -371,7 +646,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     };
   }, [recentlyArchivedTask]);
 
-  const scrollDayToStart = (index: number, smooth = true) => {
+  function scrollDayToStart(index: number, smooth = true) {
     if (!scrollRef.current || !dayRefs.current[index]) return;
     const target = dayRefs.current[index];
     const leftMargin = 24;
@@ -380,7 +655,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       left: targetLeft,
       behavior: smooth ? "smooth" : "auto",
     });
-  };
+  }
 
   const getNearestVisibleDayIndex = () => {
     if (!scrollRef.current) return selectedIndex;
@@ -418,7 +693,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setAuthAction(nextAction);
     setAuthError("");
     setAuthSuccess("");
-    setOptionsOpen(false);
+    closeOptionsMenu();
   };
 
   const closeAuthDialog = () => {
@@ -431,7 +706,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const handleImmediateSignOut = async () => {
     if (authLoading) return;
 
-    setOptionsOpen(false);
+    closeOptionsMenu();
     setAuthError("");
     setAuthSuccess("");
     setAuthLoading(true);
@@ -1266,6 +1541,19 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     targetTasks.splice(safeInsertIndex, 0, nextTask);
     setDays(nextDays);
 
+    if (!isSystemListId(listId)) {
+      setSavedLists((current) =>
+        current.map((list) =>
+          list.id === listId
+            ? {
+                ...list,
+                tasks: list.tasks.filter((_, index) => index !== taskIndex),
+              }
+            : list
+        )
+      );
+    }
+
     if (currentUserId) {
       void persistTaskRowsForDays(nextDays, [toDay]).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Could not save task from list.";
@@ -1692,6 +1980,22 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     const task = days[payload.fromDay]?.tasks?.[payload.fromTask];
     if (!task) return;
+
+    const nextDays = days.map((day) => ({ ...day, tasks: [...day.tasks] }));
+    const sourceTask = nextDays[payload.fromDay]?.tasks?.[payload.fromTask];
+    if (!sourceTask) return;
+
+    nextDays[payload.fromDay].tasks.splice(payload.fromTask, 1);
+    setDays(nextDays);
+
+    if (currentUserId && sourceTask.id) {
+      void persistTaskRowsForDays(nextDays, [payload.fromDay]).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not move task into saved list.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+
     addTaskToSavedList(listId, task);
   };
 
@@ -1704,130 +2008,300 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setActiveListId(id);
     setNewListName("");
     setIsCreatingList(false);
+    setListDetailMode("list");
   };
 
-  const allListTabs = [
+  const renameSavedList = (listId: string) => {
+    if (isSystemListId(listId)) return;
+
+    const currentName = savedLists.find((list) => list.id === listId)?.name ?? "";
+    const nextName = window.prompt("Rename list", currentName)?.trim();
+    if (!nextName) return;
+
+    setSavedLists((current) =>
+      current.map((list) => (list.id === listId ? { ...list, name: nextName } : list))
+    );
+  };
+
+  const deleteSavedList = (listId: string) => {
+    if (isSystemListId(listId)) return;
+
+    const list = savedLists.find((item) => item.id === listId);
+    if (!list) return;
+
+    const confirmed = window.confirm(`Delete list "${list.name}"? Tasks will be moved to Backlog.`);
+    if (!confirmed) return;
+
+    setSavedLists((current) => {
+      const target = current.find((item) => item.id === listId);
+      const overflowTasks = target?.tasks ?? [];
+
+      return current
+        .filter((item) => item.id !== listId)
+        .map((item) =>
+          item.id === BACKLOG_LIST_ID
+            ? {
+                ...item,
+                tasks: [...overflowTasks, ...item.tasks],
+              }
+            : item
+        );
+    });
+
+    setActiveListId(BACKLOG_LIST_ID);
+  };
+
+  const reorderCustomLists = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+
+    setSavedLists((current) => {
+      const backlog = current.find((list) => list.id === BACKLOG_LIST_ID) ?? createDefaultSavedLists()[0];
+      const customLists = current.filter((list) => list.id !== BACKLOG_LIST_ID);
+      const fromIndex = customLists.findIndex((list) => list.id === fromId);
+      const toIndex = customLists.findIndex((list) => list.id === toId);
+      if (fromIndex < 0 || toIndex < 0) return current;
+
+      const nextCustomLists = [...customLists];
+      const [moved] = nextCustomLists.splice(fromIndex, 1);
+      nextCustomLists.splice(toIndex, 0, moved);
+      return [backlog, ...nextCustomLists];
+    });
+  };
+
+  const customListTabs = savedLists
+    .filter((list) => list.id !== BACKLOG_LIST_ID)
+    .map((list) => ({ id: list.id, name: list.name, count: list.tasks.length }));
+
+  const systemListTabs = [
     { id: BACKLOG_LIST_ID, name: "Backlog", count: getPanelTasksForList(BACKLOG_LIST_ID).length },
     { id: RECURRING_LIST_ID, name: "Recurring", count: getPanelTasksForList(RECURRING_LIST_ID).length },
     { id: ARCHIVE_LIST_ID, name: "Archive", count: getPanelTasksForList(ARCHIVE_LIST_ID).length },
-    ...savedLists
-      .filter((list) => list.id !== BACKLOG_LIST_ID)
-      .map((list) => ({ id: list.id, name: list.name, count: list.tasks.length })),
   ];
 
+  const allListTabs = [...customListTabs, ...systemListTabs];
+
   const activeListTasks = getPanelTasksForList(activeListId);
+  const showListDetailPane = listDetailMode !== "hidden";
+  const openListPanelWidthPx = showListDetailPane ? listPanelWidthPx : COLLAPSED_LIST_RAIL_WIDTH_PX;
 
   const renderListsPanel = () => (
     <aside
       ref={listsPanelRef}
-      className={`absolute right-4 top-4 bottom-4 z-[60] w-[22rem] rounded-xl border shadow-xl transition-all duration-300 ${
+      className={`absolute right-0 top-0 bottom-4 z-[60] ${showListDetailPane ? "rounded-l-xl border-r-0" : "w-32 rounded-xl"} border shadow-xl transition-all duration-300 ${
         viewsOpen
           ? "translate-x-0 opacity-100"
           : "pointer-events-none translate-x-12 opacity-0"
       } ${darkMode ? "border-[#3a2f5f] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+      style={showListDetailPane ? { width: `${listPanelWidthPx}px` } : undefined}
     >
-      <div className="flex h-full flex-col p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className={`text-sm font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-            Lists
-          </h3>
-          <button
-            type="button"
-            onClick={() => setIsCreatingList((current) => !current)}
-            className={`rounded-md border px-2 py-1 text-sm font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
-            title="Create saved list"
-          >
-            +
-          </button>
-        </div>
-
-        {isCreatingList ? (
-          <div className="mb-2 flex gap-1.5">
-            <input
-              type="text"
-              value={newListName}
-              onChange={(event) => setNewListName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") addSavedList();
-                if (event.key === "Escape") {
-                  setIsCreatingList(false);
-                  setNewListName("");
-                }
-              }}
-              placeholder="Weekend, Personal, Errands"
-              className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
-            />
-            <button
-              type="button"
-              onClick={addSavedList}
-              className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
-            >
-              Save
-            </button>
+      {showListDetailPane ? (
+        <div
+          role="separator"
+          aria-label="Resize lists panel"
+          onMouseDown={startListPanelResize}
+          className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize ${darkMode ? "hover:bg-[#7d6ba655]" : "hover:bg-slate-300/70"}`}
+        />
+      ) : null}
+      <div className="flex h-full">
+        {showListDetailPane ? (
+        <div className="flex min-w-0 flex-1 flex-col p-3 pr-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className={`truncate text-sm font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                {isCreatingList
+                  ? "Create New List"
+                  : allListTabs.find((list) => list.id === activeListId)?.name ?? "Lists"}
+              </h3>
+              <p className={`mt-1 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                {isCreatingList
+                  ? "Enter a name for your new list"
+                  : `${allListTabs.find((list) => list.id === activeListId)?.count ?? 0} tasks`}
+              </p>
+            </div>
           </div>
+
+          {isCreatingList ? (
+            <div className="mb-2 flex gap-1.5">
+              <input
+                ref={newListInputRef}
+                type="text"
+                value={newListName}
+                onChange={(event) => setNewListName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") addSavedList();
+                  if (event.key === "Escape") {
+                    setIsCreatingList(false);
+                    setNewListName("");
+                    setListDetailMode("hidden");
+                  }
+                }}
+                placeholder="Create a list"
+                className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
+              />
+              <button
+                type="button"
+                onClick={addSavedList}
+                className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
+              >
+                Save
+              </button>
+            </div>
+          ) : null}
+
+          <div
+            onDragOver={(event) => {
+              event.preventDefault();
+            }}
+            onDrop={(event) => handleDropToSavedList(activeListId, event)}
+            className={`flex-1 overflow-auto rounded-lg border p-2 ${darkMode ? "border-[#4c3e74] bg-[#1a1428]" : "border-slate-200 bg-slate-50"}`}
+          >
+            {activeListTasks.length === 0 ? (
+              <div className={`rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
+                {activeListId === RECURRING_LIST_ID
+                  ? "Recurring tasks will appear here automatically."
+                  : activeListId === ARCHIVE_LIST_ID
+                    ? "Archived tasks appear here."
+                    : "No tasks yet. Drag one in from a day column."}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {activeListTasks.map((task, taskIndex) => (
+                  <div
+                    key={`${activeListId}-${task.id ?? task.title}-${taskIndex}`}
+                    draggable
+                    onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
+                    className={`cursor-grab rounded-lg border px-2.5 py-2 text-sm transition active:cursor-grabbing ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100 hover:bg-[#30244a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+                  >
+                    <p className="font-medium leading-snug">{task.title}</p>
+                    <p className={`mt-1 text-[0.72rem] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      {task.dueDate?.trim() ? formatDueDateDisplay(task.dueDate) : "No due date"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         ) : null}
 
-        <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
-          {allListTabs.map((list) => {
-            const isActive = list.id === activeListId;
-            return (
-              <button
-                key={list.id}
-                type="button"
-                onClick={() => setActiveListId(list.id)}
-                className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                  isActive
-                    ? darkMode
-                      ? "border-[#7d6ba6] bg-[#3b315a] text-white"
-                      : "border-slate-400 bg-slate-200 text-slate-900"
-                    : darkMode
-                      ? "border-[#4c3e74] bg-[#2a2142] text-slate-200 hover:bg-[#342951]"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                {list.name} ({list.count})
-              </button>
-            );
-          })}
-        </div>
+        <div className={`flex ${showListDetailPane ? "w-32 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#4c3e74] bg-[#181224]" : "border-slate-200 bg-slate-50"}`}>
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <span className={`text-[0.7rem] font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+              Lists
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (isCreatingList) {
+                  setIsCreatingList(false);
+                  setNewListName("");
+                  setListDetailMode("hidden");
+                  return;
+                }
 
-        <div
-          onDragOver={(event) => {
-            if (activeListId === RECURRING_LIST_ID || activeListId === ARCHIVE_LIST_ID) return;
-            event.preventDefault();
-          }}
-          onDrop={(event) => handleDropToSavedList(activeListId, event)}
-          className={`flex-1 overflow-auto rounded-lg border p-2 ${darkMode ? "border-[#4c3e74] bg-[#1a1428]" : "border-slate-200 bg-slate-50"}`}
-        >
-          <p className={`mb-2 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-            Drag tasks between this list and daily columns.
-          </p>
+                setIsCreatingList(true);
+                setListDetailMode("create");
+              }}
+              className={`rounded-md border px-2 py-1 text-sm font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
+              title="Create saved list"
+            >
+              +
+            </button>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="grid gap-1">
+              {customListTabs.map((list) => {
+                const isActive = list.id === activeListId;
 
-          {activeListTasks.length === 0 ? (
-            <div className={`rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
-              {activeListId === RECURRING_LIST_ID
-                ? "Recurring tasks will appear here automatically."
-                : activeListId === ARCHIVE_LIST_ID
-                  ? "Archived tasks appear here."
-                  : "No tasks yet. Drag one in from a day column."}
+                return (
+                  <button
+                    key={list.id}
+                    type="button"
+                    onMouseEnter={(event) => showListNameTooltipWithDelay(list.name, event)}
+                    onMouseMove={updateListNameTooltipPosition}
+                    onMouseLeave={hideListNameTooltip}
+                    onBlur={hideListNameTooltip}
+                    onClick={() => {
+                      setActiveListId(list.id);
+                      setIsCreatingList(false);
+                      setListDetailMode("list");
+                    }}
+                    draggable
+                    onDragStart={() => {
+                      setDraggingListTabId(list.id);
+                    }}
+                    onDragEnd={() => setDraggingListTabId(null)}
+                    onDragOver={(event) => {
+                      if (!draggingListTabId) return;
+                      event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      if (!draggingListTabId) return;
+                      event.preventDefault();
+                      reorderCustomLists(draggingListTabId, list.id);
+                      setDraggingListTabId(null);
+                    }}
+                    className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
+                      isActive
+                        ? darkMode
+                          ? "bg-[#3b315a] text-white shadow-sm"
+                          : "bg-slate-200 text-slate-900 shadow-sm"
+                        : darkMode
+                          ? "text-slate-200 hover:bg-[#2a2142]"
+                          : "text-slate-700 hover:bg-white"
+                    }`}
+                  >
+                    <span className="ml-1 flex min-w-0 items-center gap-2">
+                      <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
+                    </span>
+                    <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
+                      {list.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          ) : (
-            <div className="space-y-1.5">
-              {activeListTasks.map((task, taskIndex) => (
-                <div
-                  key={`${activeListId}-${task.id ?? task.title}-${taskIndex}`}
-                  draggable
-                  onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
-                  className={`cursor-grab rounded-lg border px-2.5 py-2 text-sm transition active:cursor-grabbing ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100 hover:bg-[#30244a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
-                >
-                  <p className="font-medium leading-snug">{task.title}</p>
-                  <p className={`mt-1 text-[0.72rem] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    {task.dueDate?.trim() ? formatDueDateDisplay(task.dueDate) : "No due date"}
-                  </p>
-                </div>
-              ))}
+
+            <div className={`mt-2 pt-2 ${darkMode ? "border-t border-[#4c3e74]" : "border-t border-slate-200"}`}>
+              <div className="grid gap-1">
+                {systemListTabs.map((list) => {
+                  const isActive = list.id === activeListId;
+
+                  return (
+                    <button
+                      key={list.id}
+                      type="button"
+                      onMouseEnter={(event) => showListNameTooltipWithDelay(list.name, event)}
+                      onMouseMove={updateListNameTooltipPosition}
+                      onMouseLeave={hideListNameTooltip}
+                      onBlur={hideListNameTooltip}
+                      onClick={() => {
+                        setActiveListId(list.id);
+                        setIsCreatingList(false);
+                        setListDetailMode("list");
+                      }}
+                      className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
+                        isActive
+                          ? darkMode
+                            ? "bg-[#3b315a] text-white shadow-sm"
+                            : "bg-slate-200 text-slate-900 shadow-sm"
+                          : darkMode
+                            ? "text-slate-200 hover:bg-[#2a2142]"
+                            : "text-slate-700 hover:bg-white"
+                      }`}
+                    >
+                      <span className="ml-1 flex min-w-0 items-center gap-2">
+                        <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
+                      </span>
+                      <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
+                        {list.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </aside>
@@ -1841,8 +2315,13 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     return (
       <div
-        className={`absolute right-0 mt-2 w-44 rounded-md border p-2 text-sm ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-        style={{ borderTopRightRadius: 0 }}
+        className={`fixed z-[130] rounded-md border p-2 text-sm shadow-2xl ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+        style={{
+          top: optionsMenuPosition?.top ?? 0,
+          left: optionsMenuPosition?.left ?? 0,
+          minWidth: optionsMenuPosition?.minWidth ?? 176,
+          borderTopRightRadius: 0,
+        }}
       >
         {isSignedIn ? (
           <p className={`mb-2 rounded-md border px-2 py-1.5 text-xs font-medium ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
@@ -1880,12 +2359,59 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         <button
           type="button"
           onClick={() => {
-            setArchivePanelOpen(true);
-            setOptionsOpen(false);
+            setDarkMode((prev) => !prev);
+            closeOptionsMenu();
           }}
           className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
         >
+          {darkMode ? "Switch to Light" : "Switch to Dark"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setArchivePanelOpen(true);
+            closeOptionsMenu();
+          }}
+          className={`mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+        >
           Archive
+        </button>
+      </div>
+    );
+  };
+
+  const renderSettingsDropdown = () => {
+    if (!settingsOpen) return null;
+
+    return (
+      <div
+        className={`fixed z-[130] rounded-md border p-2 text-sm shadow-2xl ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+        style={{
+          top: settingsMenuPosition?.top ?? 0,
+          left: settingsMenuPosition?.left ?? 0,
+          minWidth: settingsMenuPosition?.minWidth ?? 176,
+          borderTopRightRadius: 0,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            saveListPanelWidthPreference();
+            closeSettingsMenu();
+          }}
+          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+        >
+          Save list width
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            resetListPanelSize();
+            closeSettingsMenu();
+          }}
+          className={`mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
+        >
+          Reset list sizes
         </button>
       </div>
     );
@@ -2683,7 +3209,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-0">
       <header className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-3 py-2 shadow-sm transition ${darkMode ? "border-[#372a5d] bg-[#171021] shadow-[#241b35]/30" : "border-slate-200 bg-white shadow-slate-200/50"}`}>
         <div className="flex flex-1 min-w-0 items-center gap-3">
           <div ref={searchPanelRef} className="relative w-[20rem]">
@@ -2714,32 +3240,15 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           >
             Go to Today
           </button>
-          <button
-            type="button"
-            onClick={() => setDarkMode((prev) => !prev)}
-            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-          >
-            {darkMode ? "Switch to Light" : "Switch to Dark"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setViewsOpen(false);
-              setOptionsOpen(false);
-              setRecurringPanelOpen(true);
-            }}
-            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-          >
-            Recurring ({recurringTasks.length})
-          </button>
         </div>
-        <div ref={topMenusRef} className="flex items-center gap-2">
+        <div ref={topMenusRef} className="relative z-[110] flex items-center gap-2">
           <div className="relative">
             <button
+              ref={optionsButtonRef}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setOptionsOpen(false);
+                closeOptionsMenu();
                 setViewsOpen((v) => !v);
               }}
               aria-expanded={viewsOpen}
@@ -2751,11 +3260,38 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           </div>
           <div className="relative">
             <button
+              ref={settingsButtonRef}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setViewsOpen(false);
-                setOptionsOpen((v) => !v);
+                closeOptionsMenu();
+                if (settingsOpen) {
+                  closeSettingsMenu();
+                } else {
+                  openSettingsMenu();
+                }
+              }}
+              aria-expanded={settingsOpen}
+              aria-label="Settings"
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
+            >
+              Settings
+            </button>
+            {renderSettingsDropdown()}
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setViewsOpen(false);
+                closeSettingsMenu();
+                if (optionsOpen) {
+                  closeOptionsMenu();
+                } else {
+                  openOptionsMenu();
+                }
               }}
               aria-expanded={optionsOpen}
               aria-label="Options"
@@ -2784,12 +3320,21 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             className={`kanban-scroll flex overflow-x-auto px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide h-screen transition-[padding-right] duration-300 ${viewsOpen ? "pr-[23rem]" : ""} ${
               dragging ? "cursor-grabbing" : "cursor-grab"
             }`}
+            style={viewsOpen ? { paddingRight: `${openListPanelWidthPx}px` } : undefined}
           >
             {renderColumns()}
           </div>
           </>
         )}
       </section>
+      {listNameTooltip ? (
+        <div
+          className={`pointer-events-none fixed z-[140] max-w-xs rounded-md border px-2 py-1 text-xs font-medium shadow-xl ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
+          style={{ top: listNameTooltip.y, left: listNameTooltip.x }}
+        >
+          {listNameTooltip.text}
+        </div>
+      ) : null}
       {renderExpandedTaskModal()}
       {renderAuthDialog()}
       {renderAuthNotice()}
