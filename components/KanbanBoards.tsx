@@ -220,6 +220,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const expandedSavedListModalRef = useRef<HTMLDivElement | null>(null);
   const suppressNextViewsCloseRef = useRef(false);
   const [draggingListTabId, setDraggingListTabId] = useState<string | null>(null);
+  const [listTabDropTargetId, setListTabDropTargetId] = useState<string | null>(null);
+  const [listTabDropPosition, setListTabDropPosition] = useState<"before" | "after">("before");
   const [savedLists, setSavedLists] = useState<SavedList[]>(() => createDefaultSavedLists());
   const [savedListDropTargetId, setSavedListDropTargetId] = useState<string | null>(null);
   const [savedListDropInsertIndex, setSavedListDropInsertIndex] = useState<number | null>(null);
@@ -666,7 +668,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const handleClickOutsideTopMenus = (event: MouseEvent) => {
       if (suppressNextViewsCloseRef.current) {
         suppressNextViewsCloseRef.current = false;
-        return;
       }
 
       if (expandedSavedListModalRef.current?.contains(event.target as Node)) {
@@ -679,6 +680,15 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
       if (listsPanelRef.current?.contains(event.target as Node)) {
         return;
+      }
+
+      if (showListDetailPane) {
+        setExpandedSavedListTask(null);
+        setListDetailMode("hidden");
+        setIsCreatingList(false);
+        setEditingListTask(null);
+        setEditingListTaskInput("");
+        setArchiveTaskContextMenu(null);
       }
 
       if (
@@ -694,7 +704,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     return () => {
       document.removeEventListener("mousedown", handleClickOutsideTopMenus);
     };
-  }, []);
+  }, [showListDetailPane]);
 
   useEffect(() => {
     const handleClickOutsideArchiveUndo = (event: MouseEvent) => {
@@ -710,7 +720,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     return () => {
       document.removeEventListener('mousedown', handleClickOutsideArchiveUndo);
     };
-  }, []);
+  }, [showListDetailPane]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2408,6 +2418,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const handleListTabDragOver = (listId: string, event: React.DragEvent<HTMLButtonElement>) => {
     if (draggingListTabId) {
       event.preventDefault();
+      const targetRect = event.currentTarget.getBoundingClientRect();
+      const isAfter = event.clientY > targetRect.top + targetRect.height / 2;
+      setListTabDropTargetId(listId);
+      setListTabDropPosition(isAfter ? "after" : "before");
       return;
     }
 
@@ -2424,7 +2438,13 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const handleListTabDrop = (listId: string, event: React.DragEvent<HTMLButtonElement>) => {
-    if (draggingListTabId) return;
+    if (draggingListTabId) {
+      event.preventDefault();
+      reorderCustomLists(draggingListTabId, listId, listTabDropPosition === "after");
+      setDraggingListTabId(null);
+      setListTabDropTargetId(null);
+      return;
+    }
     if (!canReceiveTasksInList(listId)) return;
 
     setSavedListDropTargetId(null);
@@ -2678,7 +2698,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setNewListTaskInput("");
   };
 
-  const reorderCustomLists = (fromId: string, toId: string) => {
+  const reorderCustomLists = (fromId: string, toId: string, insertAfter = false) => {
     if (fromId === toId) return;
 
     setSavedLists((current) => {
@@ -2690,7 +2710,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
       const nextCustomLists = [...customLists];
       const [moved] = nextCustomLists.splice(fromIndex, 1);
-      nextCustomLists.splice(toIndex, 0, moved);
+      const nextIndex = insertAfter ? Math.min(nextCustomLists.length, toIndex + (fromIndex < toIndex ? 0 : 1)) : toIndex;
+      nextCustomLists.splice(nextIndex, 0, moved);
       return [backlog, ...nextCustomLists];
     });
   };
@@ -2715,12 +2736,24 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const renderListsPanel = () => (
     <aside
       ref={listsPanelRef}
-      className={`absolute right-0 top-0 bottom-4 z-60 ${showListDetailPane ? "rounded-l-xl border-r-0" : "w-[12.5rem] rounded-xl"} border shadow-xl transition-all duration-300 ${
+      className={`absolute right-0 top-[-1px] bottom-4 z-60 ${showListDetailPane ? "rounded-none rounded-bl-xl border-r-0" : "w-[12.5rem] rounded-tl-none rounded-tr-xl rounded-br-xl rounded-bl-xl"} border shadow-xl transition-all duration-300 ${
         viewsOpen
           ? "translate-x-0 opacity-100"
           : "pointer-events-none translate-x-12 opacity-0"
-      } ${darkMode ? "border-[#3a2f5f] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
-      style={showListDetailPane ? { width: `${listPanelWidthPx}px` } : undefined}
+      } ${darkMode ? "border-[#5a4a84] bg-[#1f1830] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
+      style={
+        showListDetailPane
+          ? {
+              width: `${listPanelWidthPx}px`,
+              backgroundImage: darkMode
+                ? "linear-gradient(#6a5a94, #6a5a94)"
+                : "linear-gradient(#cbd5e1, #cbd5e1)",
+              backgroundPosition: "left top",
+              backgroundRepeat: "no-repeat",
+              backgroundSize: "1px 100%",
+            }
+          : undefined
+      }
     >
       {showListDetailPane ? (
         <div
@@ -2776,136 +2809,144 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             </div>
           ) : null}
 
-          {!isCreatingList && canCreateTaskInActiveList ? (
-            <div className="mb-2 flex gap-1.5">
-              <input
-                type="text"
-                value={newListTaskInput}
-                onChange={(event) => setNewListTaskInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addTaskToActiveList();
+          {!isCreatingList ? (
+            <>
+              {canCreateTaskInActiveList ? (
+                <div className="mb-2 flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newListTaskInput}
+                    onChange={(event) => setNewListTaskInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addTaskToActiveList();
+                      }
+                    }}
+                    placeholder="Add a task to this list"
+                    className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={addTaskToActiveList}
+                    className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : null}
+
+              <div
+                onDragOver={(event) => {
+                  if (!isDayTaskDragActive || !canCreateTaskInActiveList) return;
+                  handleSavedListViewerDragOver(activeListId, activeListTasks.length, event);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    setSavedListDropTargetId((current) => (current === activeListId ? null : current));
+                    setSavedListDropInsertIndex((current) => (savedListDropTargetId === activeListId ? null : current));
                   }
                 }}
-                placeholder="Add a task to this list"
-                className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
-              />
-              <button
-                type="button"
-                onClick={addTaskToActiveList}
-                className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
+                onDrop={(event) => handleDropToSavedList(activeListId, event, savedListDropInsertIndex ?? activeListTasks.length)}
+                className={`flex-1 overflow-auto rounded-lg border p-2 ${darkMode ? "border-[#4c3e74] bg-[#1a1428]" : "border-slate-200 bg-slate-50"}`}
               >
-                Add
-              </button>
-            </div>
-          ) : null}
-
-          <div
-            onDragOver={(event) => {
-              if (!isDayTaskDragActive || !canCreateTaskInActiveList) return;
-              handleSavedListViewerDragOver(activeListId, activeListTasks.length, event);
-            }}
-            onDragLeave={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                setSavedListDropTargetId((current) => (current === activeListId ? null : current));
-                setSavedListDropInsertIndex((current) => (savedListDropTargetId === activeListId ? null : current));
-              }
-            }}
-            onDrop={(event) => handleDropToSavedList(activeListId, event, savedListDropInsertIndex ?? activeListTasks.length)}
-            className={`flex-1 overflow-auto rounded-lg border p-2 ${darkMode ? "border-[#4c3e74] bg-[#1a1428]" : "border-slate-200 bg-slate-50"}`}
-          >
-            {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === 0 && canCreateTaskInActiveList ? (
-              <div className="mb-2 px-1">
-                <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
-              </div>
-            ) : null}
-            {activeListTasks.length === 0 ? (
-              <div className={`rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
-                {activeListId === RECURRING_LIST_ID
-                  ? "Recurring tasks will appear here automatically."
-                  : activeListId === ARCHIVE_LIST_ID
-                    ? "Archived tasks appear here."
-                    : "No tasks yet. Drag one in from a day column."}
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {activeListTasks.map((task, taskIndex) => (
-                  <TaskCard
-                    key={`${activeListId}-${task.id ?? task.title}-${taskIndex}`}
-                    task={task}
-                    dayIndex={0}
-                    taskIndex={taskIndex}
-                    darkMode={darkMode}
-                    isEditing={editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex}
-                    isHovered={false}
-                    isSearching={false}
-                    showDropIndicator={Boolean(
-                      isDayTaskDragActive &&
-                        savedListDropTargetId === activeListId &&
-                        savedListDropInsertIndex === taskIndex
-                    )}
-                    editTaskInput={editingListTaskInput}
-                    setEditTaskInput={setEditingListTaskInput}
-                    saveEditedTask={saveEditingListTask}
-                    cancelEditing={cancelEditingListTask}
-                    onOpenExpandedTask={() => {
-                      if (activeListId === ARCHIVE_LIST_ID) return;
-                      if (!canManageActiveListTasks) return;
-                      openExpandedSavedListTask(activeListId, taskIndex);
-                    }}
-                    onToggleCompleted={() => {
-                      if (activeListId === ARCHIVE_LIST_ID) return;
-                      if (!canManageActiveListTasks) return;
-                      toggleSavedListTaskCompleted(activeListId, taskIndex);
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      if (activeListId === ARCHIVE_LIST_ID) {
-                        setContextMenu(null);
-                        setContextMenuMoveOpen(false);
-                        setContextMenuTagOpen(false);
-                        setContextMenuSavedTagsOpen(false);
-                        setContextMenuDueDateOpen(false);
-                        setSavedListContextMenu(null);
-                        setArchiveTaskContextMenu({ entryIndex: taskIndex, x: event.clientX, y: event.clientY });
-                        return;
-                      }
-
-                      if (!canManageActiveListTasks) return;
-                      setContextMenu(null);
-                      setContextMenuMoveOpen(false);
-                      setContextMenuTagOpen(false);
-                      setContextMenuSavedTagsOpen(false);
-                      setContextMenuDueDateOpen(false);
-                      setContextMenuTagInput(task.tag ?? "");
-                      setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
-                      setContextMenuDueDateInput(task.dueDate ?? "");
-                      setContextMenuDueTimeInput(task.dueTime ?? "");
-                      setSavedListContextMenu({ listId: activeListId, taskIndex, x: event.clientX, y: event.clientY });
-                    }}
-                    onMouseEnter={() => {}}
-                    onMouseLeave={() => {}}
-                    onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
-                    onDragEnd={() => {}}
-                    onDragOver={(event) => handleSavedListViewerDragOver(activeListId, taskIndex, event)}
-                    onDrop={(event) => handleDropToSavedList(activeListId, event, taskIndex)}
-                    editInputRef={editInputRef}
-                  />
-                ))}
-                {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === activeListTasks.length ? (
-                  <div className="px-1">
+                {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === 0 && canCreateTaskInActiveList ? (
+                  <div className="mb-2 px-1">
                     <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
                   </div>
                 ) : null}
+                {activeListTasks.length === 0 ? (
+                  <div className={`rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
+                    {activeListId === RECURRING_LIST_ID
+                      ? "Recurring tasks will appear here automatically."
+                      : activeListId === ARCHIVE_LIST_ID
+                        ? "Archived tasks appear here."
+                        : "No tasks yet. Drag one in from a day column."}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {activeListTasks.map((task, taskIndex) => (
+                      <TaskCard
+                        key={`${activeListId}-${task.id ?? task.title}-${taskIndex}`}
+                        task={task}
+                        dayIndex={0}
+                        taskIndex={taskIndex}
+                        darkMode={darkMode}
+                        isEditing={editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex}
+                        isHovered={false}
+                        isSearching={false}
+                        showDropIndicator={Boolean(
+                          isDayTaskDragActive &&
+                            savedListDropTargetId === activeListId &&
+                            savedListDropInsertIndex === taskIndex
+                        )}
+                        editTaskInput={editingListTaskInput}
+                        setEditTaskInput={setEditingListTaskInput}
+                        saveEditedTask={saveEditingListTask}
+                        cancelEditing={cancelEditingListTask}
+                        onOpenExpandedTask={() => {
+                          if (activeListId === ARCHIVE_LIST_ID) return;
+                          if (!canManageActiveListTasks) return;
+                          openExpandedSavedListTask(activeListId, taskIndex);
+                        }}
+                        onToggleCompleted={() => {
+                          if (activeListId === ARCHIVE_LIST_ID) return;
+                          if (!canManageActiveListTasks) return;
+                          toggleSavedListTaskCompleted(activeListId, taskIndex);
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (activeListId === ARCHIVE_LIST_ID) {
+                            setContextMenu(null);
+                            setContextMenuMoveOpen(false);
+                            setContextMenuTagOpen(false);
+                            setContextMenuSavedTagsOpen(false);
+                            setContextMenuDueDateOpen(false);
+                            setSavedListContextMenu(null);
+                            setArchiveTaskContextMenu({ entryIndex: taskIndex, x: event.clientX, y: event.clientY });
+                            return;
+                          }
+
+                          if (!canManageActiveListTasks) return;
+                          setContextMenu(null);
+                          setContextMenuMoveOpen(false);
+                          setContextMenuTagOpen(false);
+                          setContextMenuSavedTagsOpen(false);
+                          setContextMenuDueDateOpen(false);
+                          setContextMenuTagInput(task.tag ?? "");
+                          setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
+                          setContextMenuDueDateInput(task.dueDate ?? "");
+                          setContextMenuDueTimeInput(task.dueTime ?? "");
+                          setSavedListContextMenu({ listId: activeListId, taskIndex, x: event.clientX, y: event.clientY });
+                        }}
+                        onMouseEnter={() => {}}
+                        onMouseLeave={() => {}}
+                        onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
+                        onDragEnd={() => {}}
+                        onDragOver={(event) => handleSavedListViewerDragOver(activeListId, taskIndex, event)}
+                        onDrop={(event) => handleDropToSavedList(activeListId, event, taskIndex)}
+                        editInputRef={editInputRef}
+                      />
+                    ))}
+                    {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === activeListTasks.length ? (
+                      <div className="px-1">
+                        <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <div className={`flex flex-1 items-start justify-center rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
+              Enter a name above to create the new list.
+            </div>
+          )}
         </div>
         ) : null}
 
-        <div className={`flex ${showListDetailPane ? "w-40 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#4c3e74] bg-[#181224]" : "border-slate-200 bg-slate-50"}`}>
+        <div className={`flex ${showListDetailPane ? "w-40 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#6a5a94] bg-[#181224]" : "border-slate-300 bg-slate-50"}`}>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
             <span className={`text-[0.7rem] font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               Lists
@@ -2933,53 +2974,54 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             <div className="grid gap-1">
               {customListTabs.map((list) => {
                 const isActive = list.id === activeListId;
+                const showDropBefore = draggingListTabId && listTabDropTargetId === list.id && listTabDropPosition === "before";
+                const showDropAfter = draggingListTabId && listTabDropTargetId === list.id && listTabDropPosition === "after";
 
                 return (
-                  <button
-                    key={list.id}
-                    type="button"
-                    onMouseEnter={(event) => showListNameTooltipWithDelay(list.name, event)}
-                    onMouseMove={updateListNameTooltipPosition}
-                    onMouseLeave={hideListNameTooltip}
-                    onBlur={hideListNameTooltip}
-                    onClick={() => {
-                      setActiveListId(list.id);
-                      setIsCreatingList(false);
-                      setListDetailMode("list");
-                    }}
-                    draggable
-                    onDragStart={() => {
-                      setDraggingListTabId(list.id);
-                    }}
-                    onDragEnd={() => setDraggingListTabId(null)}
-                    onDragOver={(event) => handleListTabDragOver(list.id, event)}
-                    onDrop={(event) => {
-                      if (draggingListTabId) {
-                        event.preventDefault();
-                        reorderCustomLists(draggingListTabId, list.id);
+                  <div key={list.id} className="space-y-1">
+                    {showDropBefore ? <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} /> : null}
+                    <button
+                      type="button"
+                      onMouseEnter={(event) => showListNameTooltipWithDelay(list.name, event)}
+                      onMouseMove={updateListNameTooltipPosition}
+                      onMouseLeave={hideListNameTooltip}
+                      onBlur={hideListNameTooltip}
+                      onClick={() => {
+                        setActiveListId(list.id);
+                        setIsCreatingList(false);
+                        setListDetailMode("list");
+                      }}
+                      draggable
+                      onDragStart={() => {
+                        setDraggingListTabId(list.id);
+                        setListTabDropTargetId(list.id);
+                        setListTabDropPosition("before");
+                      }}
+                      onDragEnd={() => {
                         setDraggingListTabId(null);
-                        return;
-                      }
-
-                      handleListTabDrop(list.id, event);
-                    }}
-                    className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
-                      isActive
-                        ? darkMode
-                          ? "bg-[#3b315a] text-white shadow-sm"
-                          : "bg-slate-200 text-slate-900 shadow-sm"
-                        : darkMode
-                          ? "text-slate-200 hover:bg-[#2a2142]"
-                          : "text-slate-700 hover:bg-white"
-                    }`}
-                  >
-                    <span className="ml-1 flex min-w-0 items-center gap-2">
-                      <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
-                    </span>
-                    <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
-                      {list.count}
-                    </span>
-                  </button>
+                        setListTabDropTargetId(null);
+                      }}
+                      onDragOver={(event) => handleListTabDragOver(list.id, event)}
+                      onDrop={(event) => handleListTabDrop(list.id, event)}
+                      className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
+                        isActive
+                          ? darkMode
+                            ? "bg-[#3b315a] text-white shadow-sm"
+                            : "bg-slate-200 text-slate-900 shadow-sm"
+                          : darkMode
+                            ? "text-slate-200 hover:bg-[#2a2142]"
+                            : "text-slate-700 hover:bg-white"
+                      }`}
+                    >
+                      <span className="ml-1 flex min-w-0 items-center gap-2">
+                        <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
+                      </span>
+                      <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
+                        {list.count}
+                      </span>
+                    </button>
+                    {showDropAfter ? <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} /> : null}
+                  </div>
                 );
               })}
             </div>
