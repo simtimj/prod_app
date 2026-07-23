@@ -159,6 +159,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [savedLists, setSavedLists] = useState<SavedList[]>(() => createDefaultSavedLists());
   const [activeListId, setActiveListId] = useState<string>(BACKLOG_LIST_ID);
   const [newListName, setNewListName] = useState("");
+  const [newListTaskInput, setNewListTaskInput] = useState("");
+  const [editingListTask, setEditingListTask] = useState<{ listId: string; taskIndex: number } | null>(null);
+  const [editingListTaskInput, setEditingListTaskInput] = useState("");
   const [isCreatingList, setIsCreatingList] = useState(false);
   const [listDetailMode, setListDetailMode] = useState<"hidden" | "list" | "create">("hidden");
   const [listPanelWidthPx, setListPanelWidthPx] = useState(() => {
@@ -2011,6 +2014,127 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setListDetailMode("list");
   };
 
+  const updateTaskInSavedList = (listId: string, taskIndex: number, updater: (task: Task) => Task) => {
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              tasks: list.tasks.map((task, index) => (index === taskIndex ? updater(task) : task)),
+            }
+          : list
+      )
+    );
+  };
+
+  const beginEditingListTask = (listId: string, taskIndex: number) => {
+    const task = getPanelTasksForList(listId)[taskIndex];
+    if (!task) return;
+    setEditingListTask({ listId, taskIndex });
+    setEditingListTaskInput(task.title);
+  };
+
+  const saveEditingListTask = () => {
+    if (!editingListTask) return;
+
+    const nextTitle = editingListTaskInput.trim();
+    if (!nextTitle) {
+      setEditingListTask(null);
+      setEditingListTaskInput("");
+      return;
+    }
+
+    updateTaskInSavedList(editingListTask.listId, editingListTask.taskIndex, (task) => ({
+      ...task,
+      title: nextTitle,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    setEditingListTask(null);
+    setEditingListTaskInput("");
+  };
+
+  const cancelEditingListTask = () => {
+    setEditingListTask(null);
+    setEditingListTaskInput("");
+  };
+
+  const deleteTaskFromSavedList = (listId: string, taskIndex: number) => {
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              tasks: list.tasks.filter((_, index) => index !== taskIndex),
+            }
+          : list
+      )
+    );
+  };
+
+  const toggleSavedListTaskCompleted = (listId: string, taskIndex: number) => {
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      completed: !task.completed,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const editSavedListTaskTag = (listId: string, taskIndex: number) => {
+    const task = getPanelTasksForList(listId)[taskIndex];
+    if (!task) return;
+
+    const nextTag = window.prompt("Set tag", task.tag ?? "")?.trim();
+    if (nextTag === undefined) return;
+
+    if (!nextTag) {
+      updateTaskInSavedList(listId, taskIndex, (currentTask) => ({
+        ...currentTask,
+        tag: undefined,
+        tagColor: undefined,
+        updatedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    const nextTagColor = window.prompt("Tag color (hex)", task.tagColor ?? "#22c55e")?.trim();
+    if (nextTagColor === undefined) return;
+
+    updateTaskInSavedList(listId, taskIndex, (currentTask) => ({
+      ...currentTask,
+      tag: nextTag,
+      tagColor: nextTagColor || currentTask.tagColor || "#22c55e",
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const addTaskToActiveList = () => {
+    const title = newListTaskInput.trim();
+    if (!title) return;
+    if (activeListId === RECURRING_LIST_ID || activeListId === ARCHIVE_LIST_ID) return;
+
+    const nowIso = new Date().toISOString();
+    const newTask: Task = {
+      title,
+      completed: false,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === activeListId
+          ? {
+              ...list,
+              tasks: [newTask, ...list.tasks],
+            }
+          : list
+      )
+    );
+
+    setNewListTaskInput("");
+  };
+
   const renameSavedList = (listId: string) => {
     if (isSystemListId(listId)) return;
 
@@ -2081,6 +2205,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const allListTabs = [...customListTabs, ...systemListTabs];
 
   const activeListTasks = getPanelTasksForList(activeListId);
+  const canCreateTaskInActiveList = activeListId !== RECURRING_LIST_ID && activeListId !== ARCHIVE_LIST_ID;
+  const canManageActiveListTasks = canCreateTaskInActiveList;
   const showListDetailPane = listDetailMode !== "hidden";
   const openListPanelWidthPx = showListDetailPane ? listPanelWidthPx : COLLAPSED_LIST_RAIL_WIDTH_PX;
 
@@ -2148,6 +2274,31 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             </div>
           ) : null}
 
+          {!isCreatingList && canCreateTaskInActiveList ? (
+            <div className="mb-2 flex gap-1.5">
+              <input
+                type="text"
+                value={newListTaskInput}
+                onChange={(event) => setNewListTaskInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addTaskToActiveList();
+                  }
+                }}
+                placeholder="Add a task to this list"
+                className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
+              />
+              <button
+                type="button"
+                onClick={addTaskToActiveList}
+                className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
+              >
+                Add
+              </button>
+            </div>
+          ) : null}
+
           <div
             onDragOver={(event) => {
               event.preventDefault();
@@ -2172,10 +2323,77 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                     onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
                     className={`cursor-grab rounded-lg border px-2.5 py-2 text-sm transition active:cursor-grabbing ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100 hover:bg-[#30244a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
                   >
-                    <p className="font-medium leading-snug">{task.title}</p>
+                    <div className="flex items-start gap-2">
+                      {canManageActiveListTasks ? (
+                        <label className="mt-0.5 inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border border-slate-400">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(task.completed)}
+                            onChange={() => toggleSavedListTaskCompleted(activeListId, taskIndex)}
+                            className="h-3 w-3"
+                          />
+                        </label>
+                      ) : null}
+
+                      <div className="min-w-0 flex-1">
+                        {editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex ? (
+                          <input
+                            type="text"
+                            value={editingListTaskInput}
+                            onChange={(event) => setEditingListTaskInput(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                saveEditingListTask();
+                              }
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelEditingListTask();
+                              }
+                            }}
+                            onBlur={saveEditingListTask}
+                            className={`w-full rounded-md border px-2 py-1 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
+                          />
+                        ) : (
+                          <p className={`font-medium leading-snug ${task.completed ? "line-through opacity-70" : ""}`}>{task.title}</p>
+                        )}
+
+                        {task.tag ? (
+                          <p className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
+                            {task.tag}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
                     <p className={`mt-1 text-[0.72rem] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       {task.dueDate?.trim() ? formatDueDateDisplay(task.dueDate) : "No due date"}
                     </p>
+
+                    {canManageActiveListTasks ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => beginEditingListTask(activeListId, taskIndex)}
+                          className={`rounded border px-2 py-0.5 text-[0.7rem] font-medium transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-200 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => editSavedListTaskTag(activeListId, taskIndex)}
+                          className={`rounded border px-2 py-0.5 text-[0.7rem] font-medium transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-200 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                        >
+                          Tag
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteTaskFromSavedList(activeListId, taskIndex)}
+                          className={`rounded border px-2 py-0.5 text-[0.7rem] font-medium transition ${darkMode ? "border-[#6b3b58] bg-[#3b2437] text-rose-100 hover:bg-[#523049]" : "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100"}`}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
