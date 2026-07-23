@@ -125,6 +125,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const initialScrollAlignedRef = useRef(false);
   const ignoreScrollRef = useRef(false);
   const preferredDateKeyRef = useRef<string | null>(null);
+  const pendingScrollToDateKeyRef = useRef<string | null>(null);
+  const suppressSelectUntilRef = useRef(0);
   const dragRef = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const [dragging, setDragging] = useState(false);
 
@@ -397,6 +399,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (pendingScrollToDateKeyRef.current) return;
     const selectedDate = days[selectedIndex]?.date;
     if (!selectedDate) return;
 
@@ -405,18 +408,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, dateKey);
   }, [days, selectedIndex]);
 
-  useEffect(() => {
-    const preferredDateKey = preferredDateKeyRef.current;
-    if (!preferredDateKey) return;
-
-    const preferredIndex = findDayIndexByDateKey(days, preferredDateKey);
-    if (preferredIndex < 0 || preferredIndex === selectedIndex) return;
-
-    ignoreScrollRef.current = true;
-    setSelectedIndex(preferredIndex);
-  }, [days, selectedIndex]);
-
   const maybeExpandDaysForScrollPosition = useCallback(() => {
+    if (pendingScrollToDateKeyRef.current) return;
+
     const container = scrollRef.current;
     if (!container || days.length === 0) return;
 
@@ -471,6 +465,39 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       if (!lastDate) return currentDays;
       return [...currentDays, ...buildAdjacentDayColumns(lastDate, ROLLING_EXTENSION_DAYS, "future")];
     });
+  }, [days, selectedIndex]);
+
+  useEffect(() => {
+    const pendingDateKey = pendingScrollToDateKeyRef.current;
+    if (!pendingDateKey) return;
+
+    const targetIndex = findDayIndexByDateKey(days, pendingDateKey);
+    if (targetIndex < 0) return;
+
+    if (selectedIndex !== targetIndex) {
+      setSelectedIndex(targetIndex);
+      return;
+    }
+
+    let frameId = 0;
+    const alignWhenReady = () => {
+      if (pendingScrollToDateKeyRef.current !== pendingDateKey) return;
+
+      if (!scrollRef.current || !dayRefs.current[targetIndex]) {
+        frameId = requestAnimationFrame(alignWhenReady);
+        return;
+      }
+
+      scrollDayToStart(targetIndex, false);
+      pendingScrollToDateKeyRef.current = null;
+    };
+
+    frameId = requestAnimationFrame(alignWhenReady);
+    return () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+    };
   }, [days, selectedIndex]);
 
   useEffect(() => {
@@ -785,30 +812,28 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const goToday = () => {
     const now = new Date();
     const todayDateKey = toDateKey(now);
+    pendingScrollToDateKeyRef.current = todayDateKey;
+    ignoreScrollRef.current = false;
     preferredDateKeyRef.current = todayDateKey;
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, todayDateKey);
     }
 
-    const existingTodayIndex = findDayIndexByDateKey(days, todayDateKey);
-    if (existingTodayIndex >= 0) {
-      ignoreScrollRef.current = true;
-      setSelectedIndex(existingTodayIndex);
-      setToday(now);
-      return;
-    }
+    let nextDays = days;
+    let nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
 
-    setDays((currentDays) => {
-      if (currentDays.length === 0) return buildRollingDayColumns(now);
-
-      let nextDays = currentDays;
-      let nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+    if (nextTodayIndex < 0) {
+      if (nextDays.length === 0) {
+        nextDays = buildRollingDayColumns(now);
+        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+      }
 
       while (nextTodayIndex < 0) {
         const firstDate = nextDays[0]?.date;
         const lastDate = nextDays[nextDays.length - 1]?.date;
         if (!firstDate || !lastDate) {
           nextDays = buildRollingDayColumns(now);
+          nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
           break;
         }
 
@@ -820,9 +845,17 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
         nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
       }
+    }
 
-      return nextDays;
-    });
+    if (nextDays !== days) {
+      setDays(nextDays);
+      setToday(now);
+      return;
+    }
+
+    if (nextTodayIndex >= 0) {
+      setSelectedIndex(nextTodayIndex);
+    }
 
     setToday(now);
   };
@@ -1831,6 +1864,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   useEffect(() => {
+    if (pendingScrollToDateKeyRef.current) return;
     if (ignoreScrollRef.current) {
       ignoreScrollRef.current = false;
       return;
@@ -1865,6 +1899,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (!dragRef.current.isDown) return;
     dragRef.current.isDown = false;
     setDragging(false);
+    if (dragRef.current.moved) {
+      suppressSelectUntilRef.current = Date.now() + 220;
+      dragRef.current.moved = false;
+      try {
+        (e.target as Element).releasePointerCapture?.(e.pointerId);
+      } catch {}
+      maybeExpandDaysForScrollPosition();
+      return;
+    }
+
     const nearestIndex = getNearestVisibleDayIndex();
     if (nearestIndex !== selectedIndex) {
       ignoreScrollRef.current = true;
@@ -2930,7 +2974,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
       return (
         <KanbanColumn
-          key={day.label}
+          key={toDateKey(day.date)}
           day={day}
           index={index}
           totalDays={days.length}
@@ -2940,6 +2984,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           dayColors={dayColors}
           themeColors={themeColors}
           onSelectDay={(dayIndex) => {
+            if (Date.now() < suppressSelectUntilRef.current) {
+              return;
+            }
             if (dragRef.current.moved) {
               dragRef.current.moved = false;
               return;

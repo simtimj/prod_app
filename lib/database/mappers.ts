@@ -1,7 +1,12 @@
 import { ArchivedTaskEntry, DayColumn, Task } from "@/components/kanbanTypes";
 import { SupabaseTaskRow } from "@/lib/database/types";
 
-export const getDateKey = (date: Date) => date.toISOString().slice(0, 10);
+export const getDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 export const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
   id: row.id,
