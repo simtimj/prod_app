@@ -70,6 +70,51 @@ If you only want the frontend (without auto-starting backend):
 npm run dev
 ```
 
+## Using Lists
+
+The app supports custom lists such as `Backlog`, `Weekend`, or any list you create from the `Lists` panel.
+
+### Lists overview
+
+Lists give you a second way to organize tasks outside of the day-by-day board.
+
+- Use custom lists for buckets like `Backlog`, `Weekend`, `Errands`, or any category that is easier to manage outside a specific date.
+- Open a list to view its tasks in a dedicated side panel.
+- Move tasks from daily columns into custom lists when they belong to a category more than a single day.
+- Move tasks from custom lists back into daily columns when you want to schedule them again.
+- `Recurring` and `Archive` are system lists with special behavior and are not treated like normal drop targets.
+
+### Quick drag-and-drop summary
+
+- Drag a task from a daily column.
+- Hover over `Lists` in the top bar to open the Lists panel.
+- Hover over `Backlog` or a custom list to target it.
+- Drop directly on the list tab or inside the open list viewer.
+
+### Basic list workflow
+
+1. Click `Lists` in the top bar to open the Lists panel.
+2. Click `+` to create a new custom list.
+3. Click any custom list or `Backlog` to open its task viewer.
+4. Click anywhere outside the open Lists panel to close it.
+
+### Dragging tasks from daily columns into custom lists
+
+1. Click and hold a task in a daily column to start dragging it.
+2. While dragging, move over the `Lists` button in the header.
+3. The Lists panel will open.
+4. Hover over a destination list such as `Backlog` or a custom list like `Weekend`.
+5. Drop the task either:
+	- directly on the list tab, or
+	- inside the open list viewer panel.
+
+### Current rules
+
+- You can drag daily tasks into `Backlog` and custom lists.
+- You can drag tasks from custom lists back into daily columns.
+- `Recurring` and `Archive` are specialized system lists and do not accept task drops.
+- While dragging a daily task, the `Lists` button shows `Drag Here for Lists` until the drag ends.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

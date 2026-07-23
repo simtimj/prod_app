@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import KanbanColumn from "@/components/KanbanColumn";
+import TaskCard from "@/components/TaskCard";
 import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, Task } from "@/components/kanbanTypes";
 import {
   RECURRENCE_WEEKDAY_LABELS,
@@ -51,7 +52,7 @@ const ARCHIVE_LIST_ID = "archive";
 const DEFAULT_LIST_PANEL_WIDTH_PX = 392;
 const MIN_LIST_PANEL_WIDTH_PX = 320;
 const MAX_LIST_PANEL_WIDTH_PX = 720;
-const COLLAPSED_LIST_RAIL_WIDTH_PX = 128;
+const COLLAPSED_LIST_RAIL_WIDTH_PX = 200;
 const ROLLING_PAST_DAYS = 14;
 const ROLLING_FUTURE_DAYS = 14;
 const ROLLING_EXTENSION_DAYS = 7;
@@ -121,6 +122,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [today, setToday] = useState(() => new Date());
   const [selectedIndex, setSelectedIndex] = useState(ROLLING_PAST_DAYS);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [isDayTaskDragActive, setIsDayTaskDragActive] = useState(false);
   const dayRefs = useRef<Array<HTMLDivElement | null>>([]);
   const initialScrollAlignedRef = useRef(false);
   const ignoreScrollRef = useRef(false);
@@ -550,6 +552,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   }, [editingTask]);
 
   useEffect(() => {
+    if (editingListTask !== null && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  }, [editingListTask]);
+
+  useEffect(() => {
     if (!isCreatingList || !newListInputRef.current) return;
 
     newListInputRef.current.focus();
@@ -601,7 +609,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         topMenusRef.current &&
         !topMenusRef.current.contains(event.target as Node)
       ) {
-        setViewsOpen(false);
         closeOptionsMenu();
         closeSettingsMenu();
       }
@@ -736,11 +743,11 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     };
 
     if (viewsOpen || optionsOpen || settingsOpen) {
-      document.addEventListener("mousedown", handleClickOutsideTopMenus);
+      document.addEventListener("click", handleClickOutsideTopMenus);
     }
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutsideTopMenus);
+      document.removeEventListener("click", handleClickOutsideTopMenus);
     };
   }, [viewsOpen, optionsOpen, settingsOpen]);
 
@@ -1776,6 +1783,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const handleDragStart = (fromDay: number, fromTask: number, e: React.DragEvent) => {
     try {
+      setIsDayTaskDragActive(true);
       e.dataTransfer.setData('application/json', JSON.stringify({ source: 'day', fromDay, fromTask }));
       e.dataTransfer.effectAllowed = 'move';
       // create a cloned node to use as the drag image so the item appears to move with the cursor
@@ -1805,6 +1813,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const handleDragEnd = (e: React.DragEvent) => {
     try {
+      setIsDayTaskDragActive(false);
       e.dataTransfer.clearData();
       try {
         (e.currentTarget as HTMLElement)?.classList.remove('kanban-dragging');
@@ -1822,6 +1831,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const handleDrop = (toDay: number, insertIndex: number, e: React.DragEvent) => {
     e.preventDefault();
     const payload = e.dataTransfer.getData('application/json');
+    setIsDayTaskDragActive(false);
     if (!payload) return;
     let parsed:
       | { source?: "day"; fromDay: number; fromTask: number }
@@ -2145,6 +2155,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const handleDropToSavedList = (listId: string, event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    setIsDayTaskDragActive(false);
 
     const payload = parseDragPayload(event);
     if (!payload) return;
@@ -2199,6 +2210,39 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     }
 
     addTaskToSavedList(listId, task);
+    setActiveListId(listId);
+    setIsCreatingList(false);
+    setListDetailMode("list");
+    setViewsOpen(true);
+  };
+
+  const canReceiveTasksInList = (listId: string) => listId !== RECURRING_LIST_ID && listId !== ARCHIVE_LIST_ID;
+
+  const handleListTabDragOver = (listId: string, event: React.DragEvent<HTMLButtonElement>) => {
+    if (draggingListTabId) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!canReceiveTasksInList(listId)) return;
+
+    if (!isDayTaskDragActive) return;
+    setViewsOpen(true);
+    setActiveListId(listId);
+    setIsCreatingList(false);
+    setListDetailMode("list");
+    event.preventDefault();
+  };
+
+  const handleListTabDrop = (listId: string, event: React.DragEvent<HTMLButtonElement>) => {
+    if (draggingListTabId) return;
+    if (!canReceiveTasksInList(listId)) return;
+
+    setActiveListId(listId);
+    setIsCreatingList(false);
+    setListDetailMode("list");
+    setViewsOpen(true);
+    handleDropToSavedList(listId, event as unknown as React.DragEvent<HTMLDivElement>);
   };
 
   const addSavedList = () => {
@@ -2258,51 +2302,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setEditingListTaskInput("");
   };
 
-  const deleteTaskFromSavedList = (listId: string, taskIndex: number) => {
-    setSavedLists((current) =>
-      current.map((list) =>
-        list.id === listId
-          ? {
-              ...list,
-              tasks: list.tasks.filter((_, index) => index !== taskIndex),
-            }
-          : list
-      )
-    );
-  };
-
   const toggleSavedListTaskCompleted = (listId: string, taskIndex: number) => {
     updateTaskInSavedList(listId, taskIndex, (task) => ({
       ...task,
       completed: !task.completed,
-      updatedAt: new Date().toISOString(),
-    }));
-  };
-
-  const editSavedListTaskTag = (listId: string, taskIndex: number) => {
-    const task = getPanelTasksForList(listId)[taskIndex];
-    if (!task) return;
-
-    const nextTag = window.prompt("Set tag", task.tag ?? "")?.trim();
-    if (nextTag === undefined) return;
-
-    if (!nextTag) {
-      updateTaskInSavedList(listId, taskIndex, (currentTask) => ({
-        ...currentTask,
-        tag: undefined,
-        tagColor: undefined,
-        updatedAt: new Date().toISOString(),
-      }));
-      return;
-    }
-
-    const nextTagColor = window.prompt("Tag color (hex)", task.tagColor ?? "#22c55e")?.trim();
-    if (nextTagColor === undefined) return;
-
-    updateTaskInSavedList(listId, taskIndex, (currentTask) => ({
-      ...currentTask,
-      tag: nextTag,
-      tagColor: nextTagColor || currentTask.tagColor || "#22c55e",
       updatedAt: new Date().toISOString(),
     }));
   };
@@ -2372,7 +2375,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const renderListsPanel = () => (
     <aside
       ref={listsPanelRef}
-      className={`absolute right-0 top-0 bottom-4 z-[60] ${showListDetailPane ? "rounded-l-xl border-r-0" : "w-32 rounded-xl"} border shadow-xl transition-all duration-300 ${
+      className={`absolute right-0 top-0 bottom-4 z-60 ${showListDetailPane ? "rounded-l-xl border-r-0" : "w-[12.5rem] rounded-xl"} border shadow-xl transition-all duration-300 ${
         viewsOpen
           ? "translate-x-0 opacity-100"
           : "pointer-events-none translate-x-12 opacity-0"
@@ -2476,84 +2479,40 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             ) : (
               <div className="space-y-1.5">
                 {activeListTasks.map((task, taskIndex) => (
-                  <div
+                  <TaskCard
                     key={`${activeListId}-${task.id ?? task.title}-${taskIndex}`}
-                    draggable
+                    task={task}
+                    dayIndex={0}
+                    taskIndex={taskIndex}
+                    darkMode={darkMode}
+                    isEditing={editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex}
+                    isHovered={false}
+                    isSearching={false}
+                    showDropIndicator={false}
+                    editTaskInput={editingListTaskInput}
+                    setEditTaskInput={setEditingListTaskInput}
+                    saveEditedTask={saveEditingListTask}
+                    cancelEditing={cancelEditingListTask}
+                    onOpenExpandedTask={() => {
+                      if (!canManageActiveListTasks) return;
+                      beginEditingListTask(activeListId, taskIndex);
+                    }}
+                    onToggleCompleted={() => {
+                      if (!canManageActiveListTasks) return;
+                      toggleSavedListTaskCompleted(activeListId, taskIndex);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onMouseEnter={() => {}}
+                    onMouseLeave={() => {}}
                     onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
-                    className={`cursor-grab rounded-lg border px-2.5 py-2 text-sm transition active:cursor-grabbing ${darkMode ? "border-[#4c3e74] bg-[#241b38] text-slate-100 hover:bg-[#30244a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
-                  >
-                    <div className="flex items-start gap-2">
-                      {canManageActiveListTasks ? (
-                        <label className="mt-0.5 inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border border-slate-400">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(task.completed)}
-                            onChange={() => toggleSavedListTaskCompleted(activeListId, taskIndex)}
-                            className="h-3 w-3"
-                          />
-                        </label>
-                      ) : null}
-
-                      <div className="min-w-0 flex-1">
-                        {editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex ? (
-                          <input
-                            type="text"
-                            value={editingListTaskInput}
-                            onChange={(event) => setEditingListTaskInput(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                saveEditingListTask();
-                              }
-                              if (event.key === "Escape") {
-                                event.preventDefault();
-                                cancelEditingListTask();
-                              }
-                            }}
-                            onBlur={saveEditingListTask}
-                            className={`w-full rounded-md border px-2 py-1 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
-                          />
-                        ) : (
-                          <p className={`font-medium leading-snug ${task.completed ? "line-through opacity-70" : ""}`}>{task.title}</p>
-                        )}
-
-                        {task.tag ? (
-                          <p className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
-                            {task.tag}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <p className={`mt-1 text-[0.72rem] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                      {task.dueDate?.trim() ? formatDueDateDisplay(task.dueDate) : "No due date"}
-                    </p>
-
-                    {canManageActiveListTasks ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => beginEditingListTask(activeListId, taskIndex)}
-                          className={`rounded border px-2 py-0.5 text-[0.7rem] font-medium transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-200 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editSavedListTaskTag(activeListId, taskIndex)}
-                          className={`rounded border px-2 py-0.5 text-[0.7rem] font-medium transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-200 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-                        >
-                          Tag
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteTaskFromSavedList(activeListId, taskIndex)}
-                          className={`rounded border px-2 py-0.5 text-[0.7rem] font-medium transition ${darkMode ? "border-[#6b3b58] bg-[#3b2437] text-rose-100 hover:bg-[#523049]" : "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100"}`}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
+                    onDragEnd={() => {}}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => event.preventDefault()}
+                    editInputRef={editInputRef}
+                  />
                 ))}
               </div>
             )}
@@ -2561,7 +2520,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         </div>
         ) : null}
 
-        <div className={`flex ${showListDetailPane ? "w-32 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#4c3e74] bg-[#181224]" : "border-slate-200 bg-slate-50"}`}>
+        <div className={`flex ${showListDetailPane ? "w-40 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#4c3e74] bg-[#181224]" : "border-slate-200 bg-slate-50"}`}>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
             <span className={`text-[0.7rem] font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               Lists
@@ -2608,15 +2567,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                       setDraggingListTabId(list.id);
                     }}
                     onDragEnd={() => setDraggingListTabId(null)}
-                    onDragOver={(event) => {
-                      if (!draggingListTabId) return;
-                      event.preventDefault();
-                    }}
+                    onDragOver={(event) => handleListTabDragOver(list.id, event)}
                     onDrop={(event) => {
-                      if (!draggingListTabId) return;
-                      event.preventDefault();
-                      reorderCustomLists(draggingListTabId, list.id);
-                      setDraggingListTabId(null);
+                      if (draggingListTabId) {
+                        event.preventDefault();
+                        reorderCustomLists(draggingListTabId, list.id);
+                        setDraggingListTabId(null);
+                        return;
+                      }
+
+                      handleListTabDrop(list.id, event);
                     }}
                     className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
                       isActive
@@ -2657,6 +2617,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                         setIsCreatingList(false);
                         setListDetailMode("list");
                       }}
+                      onDragOver={(event) => handleListTabDragOver(list.id, event)}
+                      onDrop={(event) => handleListTabDrop(list.id, event)}
                       className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
                         isActive
                           ? darkMode
@@ -3631,11 +3593,21 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                 closeOptionsMenu();
                 setViewsOpen((v) => !v);
               }}
+              onDragOver={(event) => {
+                if (!isDayTaskDragActive) return;
+                event.preventDefault();
+                setViewsOpen(true);
+              }}
+              onDragEnter={(event) => {
+                if (!isDayTaskDragActive) return;
+                event.preventDefault();
+                setViewsOpen(true);
+              }}
               aria-expanded={viewsOpen}
               aria-label="Lists"
               className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
             >
-              Lists
+              {isDayTaskDragActive && !viewsOpen ? "Drag Here for Lists" : "Lists"}
             </button>
           </div>
           <div className="relative">
