@@ -38,16 +38,30 @@ import {
 
 type AuthAction = "signup" | "signin" | "signout";
 
+const LAST_VIEWED_DATE_STORAGE_KEY = "kanban:last-viewed-date";
+
+function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function findDayIndexByDateKey(dayColumns: DayColumn[], dateKey: string): number {
+  return dayColumns.findIndex((day) => toDateKey(day.date) === dateKey);
+}
+
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
+  const [today, setToday] = useState(() => new Date());
   const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dayRefs = useRef<Array<HTMLDivElement | null>>([]);
   const initialScrollAlignedRef = useRef(false);
   const ignoreScrollRef = useRef(false);
+  const preferredDateKeyRef = useRef<string | null>(null);
   const dragRef = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const [dragging, setDragging] = useState(false);
 
-  const today = useMemo(() => new Date(), []);
   const [days, setDays] = useState<DayColumn[]>(() => buildDayColumns(today));
   const [darkMode, setDarkMode] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
@@ -138,6 +152,51 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     () => days.reduce((count, day) => count + day.tasks.length, 0),
     [days]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    preferredDateKeyRef.current = window.localStorage.getItem(LAST_VIEWED_DATE_STORAGE_KEY);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const selectedDate = days[selectedIndex]?.date;
+    if (!selectedDate) return;
+
+    const dateKey = toDateKey(selectedDate);
+    preferredDateKeyRef.current = dateKey;
+    window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, dateKey);
+  }, [days, selectedIndex]);
+
+  useEffect(() => {
+    const preferredDateKey = preferredDateKeyRef.current;
+    if (!preferredDateKey) return;
+
+    const preferredIndex = findDayIndexByDateKey(days, preferredDateKey);
+    if (preferredIndex < 0 || preferredIndex === selectedIndex) return;
+
+    ignoreScrollRef.current = true;
+    setSelectedIndex(preferredIndex);
+  }, [days, selectedIndex]);
+
+  useEffect(() => {
+    const refreshTodayIfDayChanged = () => {
+      const currentDateKey = toDateKey(new Date());
+      const anchoredDateKey = toDateKey(today);
+      if (currentDateKey === anchoredDateKey) return;
+      setToday(new Date());
+    };
+
+    const intervalId = window.setInterval(refreshTodayIfDayChanged, 60_000);
+    window.addEventListener("focus", refreshTodayIfDayChanged);
+    document.addEventListener("visibilitychange", refreshTodayIfDayChanged);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshTodayIfDayChanged);
+      document.removeEventListener("visibilitychange", refreshTodayIfDayChanged);
+    };
+  }, [today]);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
