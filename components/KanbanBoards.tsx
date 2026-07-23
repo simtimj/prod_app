@@ -35,6 +35,10 @@ import {
   syncSavedListsForUser,
 } from "@/lib/database/listsRepository";
 import {
+  fetchUserSettingsForUser,
+  syncUserSettingsForUser,
+} from "@/lib/database/settingsRepository";
+import {
   fetchTasksForUser,
   updateTaskArchiveState,
   upsertTask,
@@ -48,14 +52,28 @@ const LIST_PANEL_WIDTH_STORAGE_KEY = "kanban:list-panel-width";
 const BACKLOG_LIST_ID = "backlog";
 const RECURRING_LIST_ID = "recurring";
 const ARCHIVE_LIST_ID = "archive";
-const DEFAULT_LIST_PANEL_WIDTH_PX = 392;
-const MIN_LIST_PANEL_WIDTH_PX = 320;
-const MAX_LIST_PANEL_WIDTH_PX = 720;
+const DEFAULT_LIST_PANEL_WIDTH_PX = 544;
+const MIN_LIST_PANEL_WIDTH_PX = 448;
+const MAX_LIST_PANEL_WIDTH_PX = 896;
 const COLLAPSED_LIST_RAIL_WIDTH_PX = 200;
 const ROLLING_PAST_DAYS = 14;
 const ROLLING_FUTURE_DAYS = 14;
 const ROLLING_EXTENSION_DAYS = 7;
 const ROLLING_EDGE_THRESHOLD_DAYS = 3;
+
+function clampListPanelWidth(width: number): number {
+  return Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, width));
+}
+
+function readStoredListPanelWidth(): number | null {
+  if (typeof window === "undefined") return null;
+
+  const rawWidth = window.localStorage.getItem(LIST_PANEL_WIDTH_STORAGE_KEY);
+  const parsedWidth = rawWidth ? Number.parseInt(rawWidth, 10) : Number.NaN;
+  if (!Number.isFinite(parsedWidth)) return null;
+
+  return clampListPanelWidth(parsedWidth);
+}
 
 function createDefaultSavedLists(): SavedList[] {
   return [
@@ -265,17 +283,39 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setSettingsMenuPosition(null);
   };
 
-  const saveListPanelWidthPreference = () => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(LIST_PANEL_WIDTH_STORAGE_KEY, String(Math.round(listPanelWidthPx)));
-  };
+  const saveListPanelWidthPreference = useCallback(async () => {
+    const nextWidth = Math.round(listPanelWidthPx);
 
-  const resetListPanelSize = () => {
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(LIST_PANEL_WIDTH_STORAGE_KEY);
+      window.localStorage.setItem(LIST_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
     }
+
+    if (!currentUserId) return;
+
+    try {
+      await syncUserSettingsForUser({ listPanelWidthPx: nextWidth });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save list width.";
+      setAuthNotice(message);
+    }
+  }, [currentUserId, listPanelWidthPx]);
+
+  const resetListPanelSize = useCallback(async () => {
     setListPanelWidthPx(DEFAULT_LIST_PANEL_WIDTH_PX);
-  };
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LIST_PANEL_WIDTH_STORAGE_KEY, String(DEFAULT_LIST_PANEL_WIDTH_PX));
+    }
+
+    if (!currentUserId) return;
+
+    try {
+      await syncUserSettingsForUser({ listPanelWidthPx: DEFAULT_LIST_PANEL_WIDTH_PX });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not reset list width.";
+      setAuthNotice(message);
+    }
+  }, [currentUserId]);
 
   const handleListPanelResizeMouseMove = useCallback((event: MouseEvent) => {
     const resizeState = listPanelResizeRef.current;
@@ -410,10 +450,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       }
     }
 
-    const rawWidth = window.localStorage.getItem(LIST_PANEL_WIDTH_STORAGE_KEY);
-    const parsedWidth = rawWidth ? Number.parseInt(rawWidth, 10) : Number.NaN;
-    if (Number.isFinite(parsedWidth)) {
-      setListPanelWidthPx(Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, parsedWidth)));
+    const storedWidth = readStoredListPanelWidth();
+    if (storedWidth !== null) {
+      setListPanelWidthPx(storedWidth);
     }
 
     preferredDateKeyRef.current = toDateKey(new Date());
@@ -1010,6 +1049,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       if (!userId) {
         skipNextSavedListsSyncRef.current = false;
         setSavedLists(createDefaultSavedLists());
+        const storedWidth = readStoredListPanelWidth();
+        setListPanelWidthPx(storedWidth ?? DEFAULT_LIST_PANEL_WIDTH_PX);
         setArchivedTasks([]);
         setDays((currentDays) =>
           currentDays.length === 0
@@ -1021,12 +1062,27 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       }
 
       try {
-        const [rows, fetchedSavedLists] = await Promise.all([fetchTasksForUser(userId), fetchSavedListsForUser()]);
+        const [rows, fetchedSavedLists, fetchedSettings] = await Promise.all([
+          fetchTasksForUser(userId),
+          fetchSavedListsForUser(),
+          fetchUserSettingsForUser().catch(() => null),
+        ]);
         const { activeRows, archivedRows } = partitionRows(rows);
 
         skipNextSavedListsSyncRef.current = true;
         savedListsSyncReadyRef.current = true;
         setSavedLists(normalizeSavedLists(fetchedSavedLists));
+        const persistedWidth = fetchedSettings?.listPanelWidthPx;
+        const nextWidth =
+          typeof persistedWidth === "number" && Number.isFinite(persistedWidth)
+            ? clampListPanelWidth(persistedWidth)
+            : readStoredListPanelWidth();
+        if (nextWidth !== null) {
+          setListPanelWidthPx(nextWidth);
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(LIST_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
+          }
+        }
         setDays((currentDays) => {
           const baseDays = currentDays.length === 0 ? buildRollingDayColumns(new Date()) : currentDays;
           return buildDayColumnsFromRows(baseDays, activeRows, today);
@@ -2997,7 +3053,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         <button
           type="button"
           onClick={() => {
-            saveListPanelWidthPreference();
+            void saveListPanelWidthPreference();
             closeSettingsMenu();
           }}
           className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
@@ -3007,7 +3063,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         <button
           type="button"
           onClick={() => {
-            resetListPanelSize();
+            void resetListPanelSize();
             closeSettingsMenu();
           }}
           className={`mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}

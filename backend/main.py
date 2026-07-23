@@ -230,6 +230,14 @@ class SyncSavedListsRequest(BaseModel):
     lists: list[SavedListPayload]
 
 
+class UserSettingsPayload(BaseModel):
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class UserSettingsResponse(BaseModel):
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -416,6 +424,16 @@ def ensure_backlog_list(client: Client, user_id: str) -> None:
     ).execute()
 
 
+def load_user_settings(client: Client, user_id: str) -> dict[str, Any]:
+    result = client.table("user_settings").select("settings").eq("user_id", user_id).limit(1).execute()
+    row = (result.data or [None])[0]
+    if not row:
+        return {}
+
+    settings = row.get("settings") if isinstance(row, dict) else None
+    return settings if isinstance(settings, dict) else {}
+
+
 @app.middleware("http")
 async def log_task_route_requests(request: Request, call_next):
     should_log = request.url.path.startswith("/tasks")
@@ -503,6 +521,35 @@ def list_saved_lists(authorization: Optional[str] = Header(default=None)) -> Sav
         for row in (lists_result.data or [])
     ]
     return SavedListsResponse(lists=rows)
+
+
+@app.get("/settings", response_model=UserSettingsResponse)
+def get_user_settings(authorization: Optional[str] = Header(default=None)) -> UserSettingsResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+    return UserSettingsResponse(settings=load_user_settings(client, user_id))
+
+
+@app.put("/settings", response_model=OkResponse)
+def upsert_user_settings(
+    body: UserSettingsPayload,
+    authorization: Optional[str] = Header(default=None),
+) -> OkResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+    current_time = now_iso()
+
+    client.table("user_settings").upsert(
+        {
+            "user_id": user_id,
+            "settings": body.settings,
+            "created_at": current_time,
+            "updated_at": current_time,
+        },
+        on_conflict="user_id",
+    ).execute()
+
+    return OkResponse()
 
 
 @app.post("/lists/sync", response_model=OkResponse)

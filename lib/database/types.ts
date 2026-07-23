@@ -60,3 +60,22 @@ export type SavedListResponse = {
 export type SyncSavedListsRequest = {
   lists: SavedList[];
 };
+
+export type UserSettings = {
+  listPanelWidthPx?: number;
+};
+
+export type SupabaseUserSettingsRow = {
+  user_id: string;
+  settings: UserSettings;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UserSettingsResponse = {
+  settings?: UserSettings;
+};
+
+export type SyncUserSettingsRequest = {
+  settings: UserSettings;
+};

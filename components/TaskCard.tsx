@@ -82,7 +82,7 @@ export default function TaskCard({
     if (!task.tag) return null;
     return (
       <span
-        className="ml-2 inline-flex max-w-[24%] shrink-0 items-center truncate rounded-md border px-2 py-0.5 text-xs font-medium"
+        className="ml-2 inline-flex max-w-full min-w-0 shrink-0 items-center rounded-md border px-2 py-0.5 text-xs font-medium break-words"
         style={{
           color: task.tagColor ? hexToRgba(task.tagColor, darkMode ? 0.98 : 0.8) : undefined,
           borderColor: task.tagColor ? hexToRgba(task.tagColor, darkMode ? 0.75 : 0.6) : undefined,
@@ -123,7 +123,7 @@ export default function TaskCard({
   };
 
   const renderTaskContent = () => (
-    <div className="flex items-start gap-1.5">
+    <div className="flex min-w-0 items-start gap-1.5">
       <label
         className={`relative mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition ${darkMode ? "border-slate-500 text-slate-300" : "border-slate-400 text-slate-700"}`}
         onClick={(event) => event.stopPropagation()}
@@ -150,9 +150,9 @@ export default function TaskCard({
             event.stopPropagation();
             onOpenExpandedTask();
           }}
-          className="w-full text-left"
+          className="min-w-0 w-full text-left"
         >
-          <p className={`${darkMode ? "text-slate-100" : "text-slate-900"} text-sm font-semibold leading-snug ${task.completed ? "line-through text-slate-500" : ""}`}>
+          <p className={`${darkMode ? "text-slate-100" : "text-slate-900"} break-words text-sm font-semibold leading-snug ${task.completed ? "line-through text-slate-500" : ""}`} style={{ overflowWrap: "anywhere" }}>
             {task.title}
           </p>
         </button>
@@ -183,7 +183,7 @@ export default function TaskCard({
             onOpenExpandedTask();
           }
         }}
-        className={`cursor-pointer rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-600" : "border-slate-300"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
+        className={`cursor-pointer overflow-hidden rounded-xl border px-3 py-3 shadow-sm transition ${darkMode ? "border-slate-600" : "border-slate-300"} ${!taskColor ? (darkMode ? "hover:bg-slate-800/60" : "hover:bg-slate-100") : ""}`}
         style={
           taskColor
             ? {
