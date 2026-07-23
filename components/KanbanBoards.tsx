@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import KanbanColumn from "@/components/KanbanColumn";
 import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, Task } from "@/components/kanbanTypes";
 import {
-  CENTER_INDEX,
   RECURRENCE_WEEKDAY_LABELS,
   TAG_COLOR_OPTIONS,
-  buildDayColumns,
+  addDays,
   darkColors,
   formatDueDateDisplay,
   formatDueTimeDisplay,
@@ -53,6 +52,10 @@ const DEFAULT_LIST_PANEL_WIDTH_PX = 392;
 const MIN_LIST_PANEL_WIDTH_PX = 320;
 const MAX_LIST_PANEL_WIDTH_PX = 720;
 const COLLAPSED_LIST_RAIL_WIDTH_PX = 128;
+const ROLLING_PAST_DAYS = 14;
+const ROLLING_FUTURE_DAYS = 14;
+const ROLLING_EXTENSION_DAYS = 7;
+const ROLLING_EDGE_THRESHOLD_DAYS = 3;
 
 function createDefaultSavedLists(): SavedList[] {
   return [
@@ -75,9 +78,48 @@ function findDayIndexByDateKey(dayColumns: DayColumn[], dateKey: string): number
   return dayColumns.findIndex((day) => toDateKey(day.date) === dateKey);
 }
 
+function parseDateKey(dateKey: string | null): Date | null {
+  if (!dateKey) return null;
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function buildRollingDayColumns(anchorDate: Date): DayColumn[] {
+  const totalDays = ROLLING_PAST_DAYS + ROLLING_FUTURE_DAYS + 1;
+
+  return Array.from({ length: totalDays }, (_, index) => {
+    const offset = index - ROLLING_PAST_DAYS;
+    const date = addDays(anchorDate, offset);
+    return {
+      date,
+      label: `${formatWeekdayLong(date)} · ${formatMonthDay(date)}`,
+      tasks: [],
+    };
+  });
+}
+
+function buildAdjacentDayColumns(baseDate: Date, count: number, direction: "past" | "future"): DayColumn[] {
+  return Array.from({ length: count }, (_, index) => {
+    const offset = direction === "past" ? -(count - index) : index + 1;
+    const date = addDays(baseDate, offset);
+    return {
+      date,
+      label: `${formatWeekdayLong(date)} · ${formatMonthDay(date)}`,
+      tasks: [],
+    };
+  });
+}
+
+function getInitialAnchorDate(): Date {
+  if (typeof window === "undefined") return new Date();
+  const parsedPreferredDate = parseDateKey(window.localStorage.getItem(LAST_VIEWED_DATE_STORAGE_KEY));
+  return parsedPreferredDate ?? new Date();
+}
+
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
   const [today, setToday] = useState(() => new Date());
-  const [selectedIndex, setSelectedIndex] = useState(CENTER_INDEX);
+  const [selectedIndex, setSelectedIndex] = useState(ROLLING_PAST_DAYS);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dayRefs = useRef<Array<HTMLDivElement | null>>([]);
   const initialScrollAlignedRef = useRef(false);
@@ -86,7 +128,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const dragRef = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const [dragging, setDragging] = useState(false);
 
-  const [days, setDays] = useState<DayColumn[]>(() => buildDayColumns(today));
+  const [days, setDays] = useState<DayColumn[]>(() => buildRollingDayColumns(getInitialAnchorDate()));
   const [darkMode, setDarkMode] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -155,6 +197,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const archiveUndoRef = useRef<HTMLDivElement | null>(null);
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
+  const expandingEdgeRef = useRef<"left" | "right" | null>(null);
   const [draggingListTabId, setDraggingListTabId] = useState<string | null>(null);
   const [savedLists, setSavedLists] = useState<SavedList[]>(() => createDefaultSavedLists());
   const [activeListId, setActiveListId] = useState<string>(BACKLOG_LIST_ID);
@@ -248,7 +291,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setListPanelWidthPx(nextWidth);
   }, []);
 
-  const handleListPanelResizeMouseUp = useCallback(() => {
+  const handleListPanelResizeMouseUp = useCallback(function handleListPanelResizeMouseUp() {
     if (!listPanelResizeRef.current) return;
     listPanelResizeRef.current = null;
     window.removeEventListener("mousemove", handleListPanelResizeMouseMove);
@@ -373,6 +416,63 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setSelectedIndex(preferredIndex);
   }, [days, selectedIndex]);
 
+  const maybeExpandDaysForScrollPosition = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container || days.length === 0) return;
+
+    const leftMargin = 24;
+    const currentScrollLeft = container.scrollLeft + leftMargin;
+    let nearestIndex = selectedIndex;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    dayRefs.current.forEach((element, index) => {
+      if (!element) return;
+      const distance = Math.abs(element.offsetLeft - currentScrollLeft);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    });
+
+    const nearLeft = nearestIndex <= ROLLING_EDGE_THRESHOLD_DAYS;
+    const nearRight = nearestIndex >= days.length - 1 - ROLLING_EDGE_THRESHOLD_DAYS;
+    const targetEdge: "left" | "right" | null = nearLeft ? "left" : nearRight ? "right" : null;
+
+    if (!targetEdge) {
+      expandingEdgeRef.current = null;
+      return;
+    }
+
+    if (expandingEdgeRef.current === targetEdge) return;
+    expandingEdgeRef.current = targetEdge;
+
+    setDays((currentDays) => {
+      if (currentDays.length === 0) return currentDays;
+
+      if (targetEdge === "left") {
+        const firstDate = currentDays[0]?.date;
+        if (!firstDate) return currentDays;
+        const prepended = buildAdjacentDayColumns(firstDate, ROLLING_EXTENSION_DAYS, "past");
+
+        ignoreScrollRef.current = true;
+        setSelectedIndex((currentSelectedIndex) => currentSelectedIndex + prepended.length);
+
+        requestAnimationFrame(() => {
+          if (!scrollRef.current) return;
+          const firstPrependedWidth = dayRefs.current[prepended.length - 1]?.getBoundingClientRect().width;
+          if (!firstPrependedWidth || firstPrependedWidth <= 0) return;
+          scrollRef.current.scrollLeft += firstPrependedWidth * prepended.length;
+        });
+
+        return [...prepended, ...currentDays];
+      }
+
+      const lastDate = currentDays[currentDays.length - 1]?.date;
+      if (!lastDate) return currentDays;
+      return [...currentDays, ...buildAdjacentDayColumns(lastDate, ROLLING_EXTENSION_DAYS, "future")];
+    });
+  }, [days, selectedIndex]);
+
   useEffect(() => {
     const refreshTodayIfDayChanged = () => {
       const currentDateKey = toDateKey(new Date());
@@ -383,7 +483,11 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     const restoreSelectedDayScroll = () => {
       requestAnimationFrame(() => {
-        scrollDayToStart(selectedIndex, false);
+        if (!scrollRef.current || !dayRefs.current[selectedIndex]) return;
+        const target = dayRefs.current[selectedIndex];
+        const leftMargin = 24;
+        const targetLeft = Math.max(0, target.offsetLeft - leftMargin);
+        scrollRef.current.scrollTo({ left: targetLeft, behavior: "auto" });
       });
     };
 
@@ -502,20 +606,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (typeof window === 'undefined') return;
 
     const handleResize = () => {
-      const dayWidth = dayRefs.current[CENTER_INDEX]?.getBoundingClientRect().width;
-      if (!dayWidth || dayWidth <= 0) return;
-
-      const targetLeft = dayWidth * CENTER_INDEX;
-      if (scrollRef.current) {
-        scrollRef.current.scrollLeft = targetLeft;
-      }
+      if (!scrollRef.current || !dayRefs.current[selectedIndex]) return;
+      const target = dayRefs.current[selectedIndex];
+      const leftMargin = 24;
+      const targetLeft = Math.max(0, target.offsetLeft - leftMargin);
+      scrollRef.current.scrollTo({ left: targetLeft, behavior: "auto" });
     };
 
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, []);
+  }, [selectedIndex]);
 
   useEffect(() => {
     if (!optionsOpen) return;
@@ -660,7 +762,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     });
   }
 
-  const getNearestVisibleDayIndex = () => {
+  const getNearestVisibleDayIndex = useCallback(() => {
     if (!scrollRef.current) return selectedIndex;
 
     const leftMargin = 24;
@@ -678,7 +780,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     });
 
     return nearestIndex;
-  };
+  }, [selectedIndex]);
 
   const goToday = () => {
     const now = new Date();
@@ -687,9 +789,42 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, todayDateKey);
     }
+
+    const existingTodayIndex = findDayIndexByDateKey(days, todayDateKey);
+    if (existingTodayIndex >= 0) {
+      ignoreScrollRef.current = true;
+      setSelectedIndex(existingTodayIndex);
+      setToday(now);
+      return;
+    }
+
+    setDays((currentDays) => {
+      if (currentDays.length === 0) return buildRollingDayColumns(now);
+
+      let nextDays = currentDays;
+      let nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+
+      while (nextTodayIndex < 0) {
+        const firstDate = nextDays[0]?.date;
+        const lastDate = nextDays[nextDays.length - 1]?.date;
+        if (!firstDate || !lastDate) {
+          nextDays = buildRollingDayColumns(now);
+          break;
+        }
+
+        if (now < firstDate) {
+          nextDays = [...buildAdjacentDayColumns(firstDate, ROLLING_EXTENSION_DAYS, "past"), ...nextDays];
+        } else {
+          nextDays = [...nextDays, ...buildAdjacentDayColumns(lastDate, ROLLING_EXTENSION_DAYS, "future")];
+        }
+
+        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+      }
+
+      return nextDays;
+    });
+
     setToday(now);
-    ignoreScrollRef.current = true;
-    setSelectedIndex(CENTER_INDEX);
   };
 
   const openAuthDialog = (nextAction: AuthAction) => {
@@ -794,7 +929,11 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
       if (!userId) {
         setArchivedTasks([]);
-        setDays(buildDayColumns(today));
+        setDays((currentDays) =>
+          currentDays.length === 0
+            ? buildRollingDayColumns(getInitialAnchorDate())
+            : currentDays.map((day) => ({ ...day, tasks: [] }))
+        );
         setBoardLoading(false);
         return;
       }
@@ -803,14 +942,21 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         const rows = await fetchTasksForUser(userId);
         const { activeRows, archivedRows } = partitionRows(rows);
 
-        setDays(buildDayColumnsFromRows(today, activeRows));
+        setDays((currentDays) => {
+          const baseDays = currentDays.length === 0 ? buildRollingDayColumns(getInitialAnchorDate()) : currentDays;
+          return buildDayColumnsFromRows(baseDays, activeRows, today);
+        });
         setArchivedTasks(mapArchivedRowsToEntries(archivedRows));
         setBoardLoading(false);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown database error.";
         setAuthNotice(`Could not load saved tasks: ${message}`);
         setArchivedTasks([]);
-        setDays(buildDayColumns(today));
+        setDays((currentDays) =>
+          currentDays.length === 0
+            ? buildRollingDayColumns(getInitialAnchorDate())
+            : currentDays.map((day) => ({ ...day, tasks: [] }))
+        );
         setBoardLoading(false);
         console.error(message);
       }
@@ -841,7 +987,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const getTaskAtLocation = (dayIndex: number, taskIndex: number) => days[dayIndex]?.tasks?.[taskIndex] ?? null;
 
-  const getDayDateKeyForColumn = (dayIndex: number) => getDayDateKey(days, today, dayIndex);
+  const getDayDateKeyForColumn = useCallback((dayIndex: number) => getDayDateKey(days, today, dayIndex), [days, today]);
 
   const persistTaskUpsert = useCallback(
     async (task: Task, dayIndex: number, position: number) => {
@@ -854,7 +1000,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         position,
       });
     },
-    [currentUserId, days, today]
+    [currentUserId, getDayDateKeyForColumn]
   );
 
   const persistTaskArchiveState = useCallback(
@@ -1320,6 +1466,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     }
   };
 
+
   const saveEditedTask = () => {
     if (!editingTask || !editTaskInput.trim()) {
       setEditingTask(null);
@@ -1711,6 +1858,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const walk = x - dragRef.current.startX;
     if (Math.abs(walk) > 5) dragRef.current.moved = true;
     scrollRef.current.scrollLeft = dragRef.current.scrollLeft - walk;
+    maybeExpandDaysForScrollPosition();
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1725,11 +1873,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     try {
       (e.target as Element).releasePointerCapture?.(e.pointerId);
     } catch {}
+    maybeExpandDaysForScrollPosition();
+  };
+
+  const handleBoardScroll = () => {
+    if (dragRef.current.isDown) return;
+    maybeExpandDaysForScrollPosition();
   };
 
   const activeTask = expandedTask
     ? days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex] ?? null
-    : null;
+      : null;
+  const todayIndex = useMemo(() => findDayIndexByDateKey(days, toDateKey(today)), [days, today]);
 
   const recurringTasks = useMemo(
     () =>
@@ -2133,46 +2288,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     );
 
     setNewListTaskInput("");
-  };
-
-  const renameSavedList = (listId: string) => {
-    if (isSystemListId(listId)) return;
-
-    const currentName = savedLists.find((list) => list.id === listId)?.name ?? "";
-    const nextName = window.prompt("Rename list", currentName)?.trim();
-    if (!nextName) return;
-
-    setSavedLists((current) =>
-      current.map((list) => (list.id === listId ? { ...list, name: nextName } : list))
-    );
-  };
-
-  const deleteSavedList = (listId: string) => {
-    if (isSystemListId(listId)) return;
-
-    const list = savedLists.find((item) => item.id === listId);
-    if (!list) return;
-
-    const confirmed = window.confirm(`Delete list "${list.name}"? Tasks will be moved to Backlog.`);
-    if (!confirmed) return;
-
-    setSavedLists((current) => {
-      const target = current.find((item) => item.id === listId);
-      const overflowTasks = target?.tasks ?? [];
-
-      return current
-        .filter((item) => item.id !== listId)
-        .map((item) =>
-          item.id === BACKLOG_LIST_ID
-            ? {
-                ...item,
-                tasks: [...overflowTasks, ...item.tasks],
-              }
-            : item
-        );
-    });
-
-    setActiveListId(BACKLOG_LIST_ID);
   };
 
   const reorderCustomLists = (fromId: string, toId: string) => {
@@ -2819,7 +2934,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           day={day}
           index={index}
           totalDays={days.length}
-          centerIndex={CENTER_INDEX}
+          centerIndex={todayIndex}
           selectedIndex={selectedIndex}
           darkMode={darkMode}
           dayColors={dayColors}
@@ -3531,6 +3646,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             {renderSignedInEmptyHint()}
           <div
             ref={scrollRef}
+            onScroll={handleBoardScroll}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}

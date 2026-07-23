@@ -1,5 +1,4 @@
 import { ArchivedTaskEntry, DayColumn, Task } from "@/components/kanbanTypes";
-import { CENTER_INDEX, buildDayColumns } from "@/components/kanbanUtils";
 import { SupabaseTaskRow } from "@/lib/database/types";
 
 export const getDateKey = (date: Date) => date.toISOString().slice(0, 10);
@@ -27,14 +26,16 @@ export const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
   updatedAt: row.updated_at,
 });
 
-export const buildDayColumnsFromRows = (today: Date, rows: SupabaseTaskRow[]) => {
-  const nextDays = buildDayColumns(today);
+export const buildDayColumnsFromRows = (baseDays: DayColumn[], rows: SupabaseTaskRow[], fallbackDate: Date) => {
+  const nextDays = baseDays.map((day) => ({ ...day, tasks: [] as Task[] }));
   const dayIndexByDate = new Map(nextDays.map((day, index) => [getDateKey(day.date), index]));
+  const fallbackDateKey = getDateKey(fallbackDate);
+  const fallbackIndex = dayIndexByDate.get(fallbackDateKey) ?? Math.floor(nextDays.length / 2);
 
   rows.forEach((row) => {
     if (row.archived) return;
 
-    const targetIndex = row.due_date ? dayIndexByDate.get(row.due_date) ?? CENTER_INDEX : CENTER_INDEX;
+    const targetIndex = row.due_date ? dayIndexByDate.get(row.due_date) ?? fallbackIndex : fallbackIndex;
     nextDays[targetIndex].tasks.push(mapTaskRowToTask(row));
   });
 
