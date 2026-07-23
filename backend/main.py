@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, Request
@@ -56,6 +57,14 @@ TASK_SELECT_COLUMNS = (
     "recurrence_weekdays, recurrence_month_days, tag, tag_color, description, "
     "due_date, due_time, priority, created_at, updated_at, position, archived, archived_at"
 )
+SAVED_LIST_SELECT_COLUMNS = "id, user_id, name, position, created_at, updated_at"
+SAVED_LIST_TASK_SELECT_COLUMNS = (
+    "id, user_id, list_id, title, completed, recurrence_enabled, recurrence_frequency, "
+    "recurrence_weekdays, recurrence_month_days, tag, tag_color, description, "
+    "due_date, due_time, priority, position, created_at, updated_at"
+)
+BACKLOG_LIST_ID = "backlog"
+BACKLOG_LIST_NAME = "Backlog"
 
 Priority = Literal["Low", "Medium", "High"]
 RecurrenceFrequency = Literal["daily", "weekly", "monthly"]
@@ -156,6 +165,69 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     utcTime: str
+
+
+class SavedListTaskRow(BaseModel):
+    id: str
+    user_id: str
+    list_id: str
+    title: str
+    completed: bool
+    recurrence_enabled: bool
+    recurrence_frequency: Optional[RecurrenceFrequency] = None
+    recurrence_weekdays: Optional[list[int]] = None
+    recurrence_month_days: Optional[list[int]] = None
+    tag: Optional[str] = None
+    tag_color: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    priority: Optional[Priority] = None
+    created_at: str
+    updated_at: str
+    position: int
+
+
+class SavedListRow(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    position: int
+    created_at: str
+    updated_at: str
+    tasks: list[SavedListTaskRow]
+
+
+class SavedListsResponse(BaseModel):
+    lists: list[SavedListRow]
+
+
+class SavedListTaskPayload(BaseModel):
+    id: Optional[str] = None
+    title: str
+    completed: bool = False
+    recurrence_enabled: bool = False
+    recurrence_frequency: Optional[RecurrenceFrequency] = None
+    recurrence_weekdays: Optional[list[int]] = None
+    recurrence_month_days: Optional[list[int]] = None
+    tag: Optional[str] = None
+    tag_color: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    priority: Optional[Priority] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SavedListPayload(BaseModel):
+    id: str
+    name: str
+    tasks: list[SavedListTaskPayload] = Field(default_factory=list)
+
+
+class SyncSavedListsRequest(BaseModel):
+    lists: list[SavedListPayload]
 
 
 def now_iso() -> str:
@@ -285,6 +357,65 @@ def validate_task_payload(task: TaskUpsertPayload) -> None:
             raise HTTPException(status_code=400, detail="recurrence_month_days values must be between 1 and 31.")
 
 
+def validate_saved_list_task_payload(task: SavedListTaskPayload) -> None:
+    title = task.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Saved list task title is required.")
+
+    if task.due_date and not is_real_calendar_date(task.due_date):
+        raise HTTPException(status_code=400, detail="Saved list task due_date must be a real YYYY-MM-DD date.")
+
+    if task.due_time and not is_valid_time(task.due_time):
+        raise HTTPException(status_code=400, detail="Saved list task due_time must be HH:MM (24-hour).")
+
+    if not task.recurrence_enabled:
+        return
+
+    if task.recurrence_frequency is None:
+        raise HTTPException(status_code=400, detail="Saved list recurrence_frequency is required when recurrence is enabled.")
+
+    if task.recurrence_frequency == "weekly":
+        weekdays = task.recurrence_weekdays or []
+        if not weekdays:
+            raise HTTPException(status_code=400, detail="Saved list recurrence_weekdays is required for weekly recurrence.")
+        if any((not isinstance(value, int) or value < 0 or value > 6) for value in weekdays):
+            raise HTTPException(status_code=400, detail="Saved list recurrence_weekdays values must be between 0 and 6.")
+
+    if task.recurrence_frequency == "monthly":
+        month_days = task.recurrence_month_days or []
+        if not month_days:
+            raise HTTPException(status_code=400, detail="Saved list recurrence_month_days is required for monthly recurrence.")
+        if any((not isinstance(value, int) or value < 1 or value > 31) for value in month_days):
+            raise HTTPException(status_code=400, detail="Saved list recurrence_month_days values must be between 1 and 31.")
+
+
+def ensure_backlog_list(client: Client, user_id: str) -> None:
+    existing = (
+        client.table("saved_lists")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("id", BACKLOG_LIST_ID)
+        .limit(1)
+        .execute()
+    )
+
+    if existing.data:
+        return
+
+    current_time = now_iso()
+    client.table("saved_lists").upsert(
+        {
+            "id": BACKLOG_LIST_ID,
+            "user_id": user_id,
+            "name": BACKLOG_LIST_NAME,
+            "position": 0,
+            "created_at": current_time,
+            "updated_at": current_time,
+        },
+        on_conflict="user_id,id",
+    ).execute()
+
+
 @app.middleware("http")
 async def log_task_route_requests(request: Request, call_next):
     should_log = request.url.path.startswith("/tasks")
@@ -333,6 +464,139 @@ def list_tasks(
     result = query.execute()
     rows = result.data or []
     return TaskListResponse(tasks=rows)
+
+
+@app.get("/lists", response_model=SavedListsResponse)
+def list_saved_lists(authorization: Optional[str] = Header(default=None)) -> SavedListsResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+
+    ensure_backlog_list(client, user_id)
+
+    lists_result = (
+        client.table("saved_lists")
+        .select(SAVED_LIST_SELECT_COLUMNS)
+        .eq("user_id", user_id)
+        .order("position", desc=False)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    task_result = (
+        client.table("saved_list_tasks")
+        .select(SAVED_LIST_TASK_SELECT_COLUMNS)
+        .eq("user_id", user_id)
+        .order("position", desc=False)
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    task_rows = task_result.data or []
+    tasks_by_list: dict[str, list[dict[str, Any]]] = {}
+    for row in task_rows:
+        tasks_by_list.setdefault(str(row["list_id"]), []).append(row)
+
+    rows = [
+        {
+            **row,
+            "tasks": tasks_by_list.get(str(row["id"]), []),
+        }
+        for row in (lists_result.data or [])
+    ]
+    return SavedListsResponse(lists=rows)
+
+
+@app.post("/lists/sync", response_model=OkResponse)
+def sync_saved_lists(
+    body: SyncSavedListsRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> OkResponse:
+    user_id = get_current_user_id(authorization)
+    client = get_supabase_admin()
+    current_time = now_iso()
+
+    seen_ids: set[str] = set()
+    normalized_lists: list[SavedListPayload] = []
+    for incoming_list in body.lists:
+        list_id = incoming_list.id.strip()
+        list_name = incoming_list.name.strip()
+
+        if not list_id:
+            raise HTTPException(status_code=400, detail="Saved list id is required.")
+        if not list_name:
+            raise HTTPException(status_code=400, detail="Saved list name is required.")
+        if list_id in {"recurring", "archive"}:
+            raise HTTPException(status_code=400, detail="Recurring and Archive are managed system lists and cannot be synced.")
+        if list_id in seen_ids:
+            raise HTTPException(status_code=400, detail="Saved list ids must be unique.")
+
+        seen_ids.add(list_id)
+        normalized_lists.append(
+            SavedListPayload(
+                id=list_id,
+                name=BACKLOG_LIST_NAME if list_id == BACKLOG_LIST_ID else list_name,
+                tasks=incoming_list.tasks,
+            )
+        )
+
+    if BACKLOG_LIST_ID not in seen_ids:
+        normalized_lists.insert(0, SavedListPayload(id=BACKLOG_LIST_ID, name=BACKLOG_LIST_NAME, tasks=[]))
+
+    existing_lists_result = (
+        client.table("saved_lists")
+        .select("id, created_at")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    existing_by_id = {str(row["id"]): row for row in (existing_lists_result.data or [])}
+
+    list_rows: list[dict[str, Any]] = []
+    task_rows: list[dict[str, Any]] = []
+    for list_position, saved_list in enumerate(normalized_lists):
+        existing_row = existing_by_id.get(saved_list.id)
+        list_rows.append(
+            {
+                "id": saved_list.id,
+                "user_id": user_id,
+                "name": saved_list.name,
+                "position": list_position,
+                "created_at": existing_row.get("created_at") if existing_row else current_time,
+                "updated_at": current_time,
+            }
+        )
+
+        for task_position, task in enumerate(saved_list.tasks):
+            validate_saved_list_task_payload(task)
+            task_rows.append(
+                {
+                    "id": task.id or str(uuid4()),
+                    "user_id": user_id,
+                    "list_id": saved_list.id,
+                    "title": task.title.strip(),
+                    "completed": bool(task.completed),
+                    "recurrence_enabled": bool(task.recurrence_enabled),
+                    "recurrence_frequency": task.recurrence_frequency if task.recurrence_enabled else None,
+                    "recurrence_weekdays": task.recurrence_weekdays if task.recurrence_enabled and task.recurrence_frequency == "weekly" else None,
+                    "recurrence_month_days": task.recurrence_month_days if task.recurrence_enabled and task.recurrence_frequency == "monthly" else None,
+                    "tag": task.tag,
+                    "tag_color": task.tag_color,
+                    "description": task.description,
+                    "due_date": task.due_date,
+                    "due_time": task.due_time,
+                    "priority": task.priority,
+                    "position": task_position,
+                    "created_at": task.created_at or current_time,
+                    "updated_at": task.updated_at or current_time,
+                }
+            )
+
+    client.table("saved_list_tasks").delete().eq("user_id", user_id).execute()
+    client.table("saved_lists").delete().eq("user_id", user_id).neq("id", "").execute()
+    if list_rows:
+        client.table("saved_lists").insert(list_rows).execute()
+    if task_rows:
+        client.table("saved_list_tasks").insert(task_rows).execute()
+
+    return OkResponse()
 
 
 @app.post("/tasks/upsert", response_model=OkResponse)

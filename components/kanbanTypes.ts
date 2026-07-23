@@ -14,6 +14,12 @@ export type Task = {
   updatedAt?: string;
 };
 
+export type SavedList = {
+  id: string;
+  name: string;
+  tasks: Task[];
+};
+
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
 
 export type TaskRecurrence = {

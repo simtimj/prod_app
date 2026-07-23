@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
         source: "/api/tasks/:path*",
         destination: `${fastApiBaseUrl}/tasks/:path*`,
       },
+      {
+        source: "/api/lists",
+        destination: `${fastApiBaseUrl}/lists`,
+      },
+      {
+        source: "/api/lists/:path*",
+        destination: `${fastApiBaseUrl}/lists/:path*`,
+      },
     ];
   },
 };

@@ -82,6 +82,7 @@ Lists give you a second way to organize tasks outside of the day-by-day board.
 - Open a list to view its tasks in a dedicated side panel.
 - Move tasks from daily columns into custom lists when they belong to a category more than a single day.
 - Move tasks from custom lists back into daily columns when you want to schedule them again.
+- When you are signed in, custom lists and the tasks inside them are persisted to your account.
 - `Recurring` and `Archive` are system lists with special behavior and are not treated like normal drop targets.
 
 ### Quick drag-and-drop summary

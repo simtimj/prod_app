@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import KanbanColumn from "@/components/KanbanColumn";
 import TaskCard from "@/components/TaskCard";
-import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, Task } from "@/components/kanbanTypes";
+import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, SavedList, Task } from "@/components/kanbanTypes";
 import {
   RECURRENCE_WEEKDAY_LABELS,
   TAG_COLOR_OPTIONS,
@@ -31,17 +31,16 @@ import {
   partitionRows,
 } from "@/lib/database/mappers";
 import {
+  fetchSavedListsForUser,
+  syncSavedListsForUser,
+} from "@/lib/database/listsRepository";
+import {
   fetchTasksForUser,
   updateTaskArchiveState,
   upsertTask,
 } from "@/lib/database/tasksRepository";
 
 type AuthAction = "signup" | "signin" | "signout";
-type SavedList = {
-  id: string;
-  name: string;
-  tasks: Task[];
-};
 
 const LAST_VIEWED_DATE_STORAGE_KEY = "kanban:last-viewed-date";
 const SAVED_LISTS_STORAGE_KEY = "kanban:saved-lists-v1";
@@ -68,6 +67,13 @@ function createDefaultSavedLists(): SavedList[] {
   ];
 }
 
+function normalizeSavedLists(lists: SavedList[]): SavedList[] {
+  const filteredLists = lists.filter((list) => list.id !== RECURRING_LIST_ID && list.id !== ARCHIVE_LIST_ID);
+  const backlog = filteredLists.find((list) => list.id === BACKLOG_LIST_ID) ?? createDefaultSavedLists()[0];
+  const nonBacklog = filteredLists.filter((list) => list.id !== BACKLOG_LIST_ID);
+  return [backlog, ...nonBacklog];
+}
+
 function toDateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -77,13 +83,6 @@ function toDateKey(date: Date): string {
 
 function findDayIndexByDateKey(dayColumns: DayColumn[], dateKey: string): number {
   return dayColumns.findIndex((day) => toDateKey(day.date) === dateKey);
-}
-
-function parseDateKey(dateKey: string | null): Date | null {
-  if (!dateKey) return null;
-  const parsed = new Date(`${dateKey}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
 }
 
 function buildRollingDayColumns(anchorDate: Date): DayColumn[] {
@@ -112,12 +111,6 @@ function buildAdjacentDayColumns(baseDate: Date, count: number, direction: "past
   });
 }
 
-function getInitialAnchorDate(): Date {
-  if (typeof window === "undefined") return new Date();
-  const parsedPreferredDate = parseDateKey(window.localStorage.getItem(LAST_VIEWED_DATE_STORAGE_KEY));
-  return parsedPreferredDate ?? new Date();
-}
-
 export default function KanbanBoards({ dayColors }: { dayColors?: Record<string, string> } = {}) {
   const [today, setToday] = useState(() => new Date());
   const [selectedIndex, setSelectedIndex] = useState(ROLLING_PAST_DAYS);
@@ -132,7 +125,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const dragRef = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const [dragging, setDragging] = useState(false);
 
-  const [days, setDays] = useState<DayColumn[]>(() => buildRollingDayColumns(getInitialAnchorDate()));
+  const [days, setDays] = useState<DayColumn[]>(() => buildRollingDayColumns(new Date()));
   const [darkMode, setDarkMode] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -170,6 +163,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [expandedTagColorInput, setExpandedTagColorInput] = useState("#22c55e");
   const [hoveredTask, setHoveredTask] = useState<{ dayIndex: number; taskIndex: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ dayIndex: number; taskIndex: number; x: number; y: number } | null>(null);
+  const [savedListContextMenu, setSavedListContextMenu] = useState<{ listId: string; taskIndex: number; x: number; y: number } | null>(null);
+  const [expandedSavedListTask, setExpandedSavedListTask] = useState<{ listId: string; taskIndex: number } | null>(null);
   const [contextMenuMoveOpen, setContextMenuMoveOpen] = useState(false);
   const [contextMenuTagOpen, setContextMenuTagOpen] = useState(false);
   const [contextMenuSavedTagsOpen, setContextMenuSavedTagsOpen] = useState(false);
@@ -202,8 +197,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const contextMenuDueDateInputRef = useRef<HTMLInputElement | null>(null);
   const dragImageRef = useRef<HTMLElement | null>(null);
   const expandingEdgeRef = useRef<"left" | "right" | null>(null);
+  const expandedSavedListModalRef = useRef<HTMLDivElement | null>(null);
+  const suppressNextViewsCloseRef = useRef(false);
   const [draggingListTabId, setDraggingListTabId] = useState<string | null>(null);
   const [savedLists, setSavedLists] = useState<SavedList[]>(() => createDefaultSavedLists());
+  const [savedListDropTargetId, setSavedListDropTargetId] = useState<string | null>(null);
+  const [savedListDropInsertIndex, setSavedListDropInsertIndex] = useState<number | null>(null);
   const [activeListId, setActiveListId] = useState<string>(BACKLOG_LIST_ID);
   const [newListName, setNewListName] = useState("");
   const [newListTaskInput, setNewListTaskInput] = useState("");
@@ -211,20 +210,15 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [editingListTaskInput, setEditingListTaskInput] = useState("");
   const [isCreatingList, setIsCreatingList] = useState(false);
   const [listDetailMode, setListDetailMode] = useState<"hidden" | "list" | "create">("hidden");
-  const [listPanelWidthPx, setListPanelWidthPx] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_LIST_PANEL_WIDTH_PX;
-
-    const rawWidth = window.localStorage.getItem(LIST_PANEL_WIDTH_STORAGE_KEY);
-    const parsedWidth = rawWidth ? Number.parseInt(rawWidth, 10) : Number.NaN;
-
-    if (!Number.isFinite(parsedWidth)) return DEFAULT_LIST_PANEL_WIDTH_PX;
-
-    return Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, parsedWidth));
-  });
+  const [listPanelWidthPx, setListPanelWidthPx] = useState(DEFAULT_LIST_PANEL_WIDTH_PX);
   const [listNameTooltip, setListNameTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const newListInputRef = useRef<HTMLInputElement | null>(null);
   const listNameTooltipDelayRef = useRef<number | null>(null);
   const listPanelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const savedListsSyncReadyRef = useRef(false);
+  const skipNextSavedListsSyncRef = useRef(false);
+  const savedListsSyncTimeoutRef = useRef<number | null>(null);
+  const showListDetailPane = listDetailMode !== "hidden";
 
   const isSystemListId = (listId: string) =>
     listId === BACKLOG_LIST_ID || listId === RECURRING_LIST_ID || listId === ARCHIVE_LIST_ID;
@@ -389,6 +383,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         window.clearTimeout(listNameTooltipDelayRef.current);
       }
 
+      if (savedListsSyncTimeoutRef.current !== null) {
+        window.clearTimeout(savedListsSyncTimeoutRef.current);
+      }
+
       window.removeEventListener("mousemove", handleListPanelResizeMouseMove);
       window.removeEventListener("mouseup", handleListPanelResizeMouseUp);
     };
@@ -396,7 +394,29 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    preferredDateKeyRef.current = window.localStorage.getItem(LAST_VIEWED_DATE_STORAGE_KEY);
+    const rawLists = window.localStorage.getItem(SAVED_LISTS_STORAGE_KEY);
+    if (rawLists) {
+      try {
+        const parsed = JSON.parse(rawLists) as SavedList[];
+        if (Array.isArray(parsed)) {
+          const sanitized = parsed.filter(
+            (list): list is SavedList =>
+              Boolean(list) && typeof list.id === "string" && typeof list.name === "string" && Array.isArray(list.tasks)
+          );
+          setSavedLists(normalizeSavedLists(sanitized));
+        }
+      } catch {
+        // Ignore malformed local storage payloads.
+      }
+    }
+
+    const rawWidth = window.localStorage.getItem(LIST_PANEL_WIDTH_STORAGE_KEY);
+    const parsedWidth = rawWidth ? Number.parseInt(rawWidth, 10) : Number.NaN;
+    if (Number.isFinite(parsedWidth)) {
+      setListPanelWidthPx(Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, parsedWidth)));
+    }
+
+    preferredDateKeyRef.current = toDateKey(new Date());
   }, []);
 
   useEffect(() => {
@@ -571,17 +591,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         !contextMenuRef.current.contains(event.target as Node)
       ) {
         setContextMenu(null);
+        setSavedListContextMenu(null);
       }
     };
 
-    if (contextMenu) {
+    if (contextMenu || savedListContextMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [contextMenu]);
+  }, [contextMenu, savedListContextMenu]);
 
   useEffect(() => {
     const handleClickOutsideSearch = (event: MouseEvent) => {
@@ -601,6 +622,19 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   useEffect(() => {
     const handleClickOutsideTopMenus = (event: MouseEvent) => {
+      if (suppressNextViewsCloseRef.current) {
+        suppressNextViewsCloseRef.current = false;
+        return;
+      }
+
+      if (expandedSavedListModalRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      if (contextMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
       if (listsPanelRef.current?.contains(event.target as Node)) {
         return;
       }
@@ -728,6 +762,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   useEffect(() => {
     const handleClickOutsideTopMenus = (event: MouseEvent) => {
+      if (showListDetailPane) {
+        return;
+      }
+
       if (listsPanelRef.current?.contains(event.target as Node)) {
         return;
       }
@@ -749,7 +787,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     return () => {
       document.removeEventListener("click", handleClickOutsideTopMenus);
     };
-  }, [viewsOpen, optionsOpen, settingsOpen]);
+  }, [viewsOpen, optionsOpen, settingsOpen, showListDetailPane]);
 
   useEffect(() => {
     if (!recentlyArchivedTask) return;
@@ -956,7 +994,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setBoardLoading(true);
       setCurrentUserId(userId);
       setCurrentUserEmail(userEmail);
+      savedListsSyncReadyRef.current = false;
       setExpandedTask(null);
+      setExpandedSavedListTask(null);
       setEditingTask(null);
       setEditTaskInput("");
       setActiveAddIndex(null);
@@ -968,10 +1008,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setRecentlyArchivedTask(null);
 
       if (!userId) {
+        skipNextSavedListsSyncRef.current = false;
+        setSavedLists(createDefaultSavedLists());
         setArchivedTasks([]);
         setDays((currentDays) =>
           currentDays.length === 0
-            ? buildRollingDayColumns(getInitialAnchorDate())
+            ? buildRollingDayColumns(new Date())
             : currentDays.map((day) => ({ ...day, tasks: [] }))
         );
         setBoardLoading(false);
@@ -979,22 +1021,26 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       }
 
       try {
-        const rows = await fetchTasksForUser(userId);
+        const [rows, fetchedSavedLists] = await Promise.all([fetchTasksForUser(userId), fetchSavedListsForUser()]);
         const { activeRows, archivedRows } = partitionRows(rows);
 
+        skipNextSavedListsSyncRef.current = true;
+        savedListsSyncReadyRef.current = true;
+        setSavedLists(normalizeSavedLists(fetchedSavedLists));
         setDays((currentDays) => {
-          const baseDays = currentDays.length === 0 ? buildRollingDayColumns(getInitialAnchorDate()) : currentDays;
+          const baseDays = currentDays.length === 0 ? buildRollingDayColumns(new Date()) : currentDays;
           return buildDayColumnsFromRows(baseDays, activeRows, today);
         });
         setArchivedTasks(mapArchivedRowsToEntries(archivedRows));
         setBoardLoading(false);
       } catch (error) {
+        savedListsSyncReadyRef.current = false;
         const message = error instanceof Error ? error.message : "Unknown database error.";
         setAuthNotice(`Could not load saved tasks: ${message}`);
         setArchivedTasks([]);
         setDays((currentDays) =>
           currentDays.length === 0
-            ? buildRollingDayColumns(getInitialAnchorDate())
+            ? buildRollingDayColumns(new Date())
             : currentDays.map((day) => ({ ...day, tasks: [] }))
         );
         setBoardLoading(false);
@@ -1024,6 +1070,37 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       subscription.unsubscribe();
     };
   }, [loadTasksForUser]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!currentUserId || !savedListsSyncReadyRef.current) return;
+
+    if (skipNextSavedListsSyncRef.current) {
+      skipNextSavedListsSyncRef.current = false;
+      return;
+    }
+
+    if (savedListsSyncTimeoutRef.current !== null) {
+      window.clearTimeout(savedListsSyncTimeoutRef.current);
+    }
+
+    savedListsSyncTimeoutRef.current = window.setTimeout(() => {
+      void syncSavedListsForUser(savedLists).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not save custom lists.";
+        setAuthNotice(message);
+        if (currentUserId) {
+          void loadTasksForUser(currentUserId, currentUserEmail);
+        }
+      });
+    }, 250);
+
+    return () => {
+      if (savedListsSyncTimeoutRef.current !== null) {
+        window.clearTimeout(savedListsSyncTimeoutRef.current);
+        savedListsSyncTimeoutRef.current = null;
+      }
+    };
+  }, [currentUserEmail, currentUserId, loadTasksForUser, savedLists]);
 
   const getTaskAtLocation = (dayIndex: number, taskIndex: number) => days[dayIndex]?.tasks?.[taskIndex] ?? null;
 
@@ -1233,6 +1310,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const openExpandedTask = (dayIndex: number, taskIndex: number) => {
     const task = days[dayIndex]?.tasks?.[taskIndex];
+    setExpandedSavedListTask(null);
     setSelectedIndex(dayIndex);
     setExpandedTask({ dayIndex, taskIndex });
     setExpandedRecurrenceOpen(false);
@@ -1244,6 +1322,26 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setExpandedTagColorInput(task?.tagColor ?? "#22c55e");
     setContextMenu(null);
     setContextMenuMoveOpen(false);
+  };
+
+  const openExpandedSavedListTask = (listId: string, taskIndex: number) => {
+    const task = getPanelTasksForList(listId)[taskIndex];
+    if (!task) return;
+
+    setExpandedTask(null);
+    setExpandedSavedListTask({ listId, taskIndex });
+    setActiveListId(listId);
+    setListDetailMode("list");
+    setViewsOpen(true);
+    setIsCreatingList(false);
+    setEditingListTask(null);
+    setEditingListTaskInput("");
+    setContextMenu(null);
+    setContextMenuMoveOpen(false);
+    setContextMenuTagOpen(false);
+    setContextMenuSavedTagsOpen(false);
+    setContextMenuDueDateOpen(false);
+    setSavedListContextMenu(null);
   };
 
   const setTaskTag = (dayIndex: number, taskIndex: number, tag: string, color?: string) => {
@@ -1744,6 +1842,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       );
     }
 
+    if (expandedSavedListTask?.listId === listId && expandedSavedListTask?.taskIndex === taskIndex) {
+      setExpandedSavedListTask(null);
+    }
+
     if (currentUserId) {
       void persistTaskRowsForDays(nextDays, [toDay]).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Could not save task from list.";
@@ -1752,6 +1854,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       });
     }
   };
+
+    suppressNextViewsCloseRef.current = true;
 
   const toggleTaskCompleted = (dayIndex: number, taskIndex: number) => {
     const currentTask = getTaskAtLocation(dayIndex, taskIndex);
@@ -1784,6 +1888,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const handleDragStart = (fromDay: number, fromTask: number, e: React.DragEvent) => {
     try {
       setIsDayTaskDragActive(true);
+      setSavedListDropTargetId(null);
+      setSavedListDropInsertIndex(null);
       e.dataTransfer.setData('application/json', JSON.stringify({ source: 'day', fromDay, fromTask }));
       e.dataTransfer.effectAllowed = 'move';
       // create a cloned node to use as the drag image so the item appears to move with the cursor
@@ -1814,6 +1920,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const handleDragEnd = (e: React.DragEvent) => {
     try {
       setIsDayTaskDragActive(false);
+      setSavedListDropTargetId(null);
+      setSavedListDropInsertIndex(null);
       e.dataTransfer.clearData();
       try {
         (e.currentTarget as HTMLElement)?.classList.remove('kanban-dragging');
@@ -1938,6 +2046,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const activeTask = expandedTask
     ? days[expandedTask.dayIndex]?.tasks?.[expandedTask.taskIndex] ?? null
       : null;
+  const activeSavedListTask = expandedSavedListTask
+    ? getPanelTasksForList(expandedSavedListTask.listId)[expandedSavedListTask.taskIndex] ?? null
+    : null;
+  const activeSavedList = expandedSavedListTask
+    ? savedLists.find((list) => list.id === expandedSavedListTask.listId) ?? null
+    : null;
   const todayIndex = useMemo(() => findDayIndexByDateKey(days, toDateKey(today)), [days, today]);
 
   const recurringTasks = useMemo(
@@ -2149,13 +2263,17 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const handleSavedListTaskDragStart = (listId: string, taskIndex: number, event: React.DragEvent<HTMLDivElement>) => {
+    setSavedListDropTargetId(null);
+    setSavedListDropInsertIndex(null);
     event.dataTransfer.setData("application/json", JSON.stringify({ source: "saved-list", listId, taskIndex }));
     event.dataTransfer.effectAllowed = "copyMove";
   };
 
-  const handleDropToSavedList = (listId: string, event: React.DragEvent<HTMLDivElement>) => {
+  const handleDropToSavedList = (listId: string, event: React.DragEvent<HTMLDivElement>, insertIndex = 0) => {
     event.preventDefault();
     setIsDayTaskDragActive(false);
+    setSavedListDropTargetId(null);
+    setSavedListDropInsertIndex(null);
 
     const payload = parseDragPayload(event);
     if (!payload) return;
@@ -2179,9 +2297,12 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           }
 
           if (list.id === listId) {
+            const nextTasks = [...list.tasks];
+            const safeInsertIndex = Math.max(0, Math.min(insertIndex, nextTasks.length));
+            nextTasks.splice(safeInsertIndex, 0, sourceTask);
             return {
               ...list,
-              tasks: [sourceTask, ...list.tasks],
+              tasks: nextTasks,
             };
           }
 
@@ -2218,6 +2339,13 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
   const canReceiveTasksInList = (listId: string) => listId !== RECURRING_LIST_ID && listId !== ARCHIVE_LIST_ID;
 
+  const handleSavedListViewerDragOver = (listId: string, insertIndex: number, event: React.DragEvent<HTMLDivElement>) => {
+    if (!isDayTaskDragActive || !canReceiveTasksInList(listId)) return;
+    event.preventDefault();
+    setSavedListDropTargetId(listId);
+    setSavedListDropInsertIndex(insertIndex);
+  };
+
   const handleListTabDragOver = (listId: string, event: React.DragEvent<HTMLButtonElement>) => {
     if (draggingListTabId) {
       event.preventDefault();
@@ -2229,6 +2357,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (!isDayTaskDragActive) return;
     setViewsOpen(true);
     setActiveListId(listId);
+    setSavedListDropTargetId(listId);
+    setSavedListDropInsertIndex(0);
     setIsCreatingList(false);
     setListDetailMode("list");
     event.preventDefault();
@@ -2238,6 +2368,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (draggingListTabId) return;
     if (!canReceiveTasksInList(listId)) return;
 
+    setSavedListDropTargetId(null);
+    setSavedListDropInsertIndex(null);
     setActiveListId(listId);
     setIsCreatingList(false);
     setListDetailMode("list");
@@ -2270,11 +2402,28 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     );
   };
 
-  const beginEditingListTask = (listId: string, taskIndex: number) => {
-    const task = getPanelTasksForList(listId)[taskIndex];
-    if (!task) return;
-    setEditingListTask({ listId, taskIndex });
-    setEditingListTaskInput(task.title);
+  const setSavedListTaskTitle = (listId: string, taskIndex: number, title: string) => {
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      title,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const setSavedListTaskDescription = (listId: string, taskIndex: number, description: string) => {
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      description,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const setSavedListTaskPriority = (listId: string, taskIndex: number, priority: Task["priority"] | "") => {
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      priority: priority || undefined,
+      updatedAt: new Date().toISOString(),
+    }));
   };
 
   const saveEditingListTask = () => {
@@ -2308,6 +2457,88 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       completed: !task.completed,
       updatedAt: new Date().toISOString(),
     }));
+  };
+
+  const setSavedListTaskTag = (listId: string, taskIndex: number, tag: string, color?: string) => {
+    const trimmedTag = tag.trim();
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      tag: trimmedTag || undefined,
+      tagColor: trimmedTag ? (color ?? task.tagColor ?? "#22c55e") : undefined,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const setSavedListTaskDueDate = (listId: string, taskIndex: number, dueDate: string) => {
+    const trimmedDueDate = dueDate.trim();
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      dueDate: trimmedDueDate || undefined,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const setSavedListTaskDueTime = (listId: string, taskIndex: number, dueTime: string) => {
+    const trimmedDueTime = dueTime.trim();
+    updateTaskInSavedList(listId, taskIndex, (task) => ({
+      ...task,
+      dueTime: trimmedDueTime || undefined,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const archiveSavedListTask = (listId: string, taskIndex: number) => {
+    const task = getPanelTasksForList(listId)[taskIndex];
+    if (!task) return;
+
+    const listName = savedLists.find((list) => list.id === listId)?.name ?? "Saved list";
+    suppressNextViewsCloseRef.current = true;
+    if (expandedSavedListTask?.listId === listId && expandedSavedListTask?.taskIndex === taskIndex) {
+      setExpandedSavedListTask(null);
+    }
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              tasks: list.tasks.filter((_, index) => index !== taskIndex),
+            }
+          : list
+      )
+    );
+
+    const archivedAt = new Date().toISOString();
+    setArchivedTasks((currentArchived) => [
+      {
+        id: `${archivedAt}-${listId}-${taskIndex}`,
+        taskId: task.id,
+        userId: task.userId,
+        task,
+        dayLabel: listName,
+        archivedAt,
+      },
+      ...currentArchived,
+    ]);
+
+    if (currentUserId) {
+      const archivedTask: Task = {
+        ...task,
+        id: task.id ?? crypto.randomUUID(),
+        userId: currentUserId,
+        createdAt: task.createdAt ?? archivedAt,
+        updatedAt: archivedAt,
+      };
+
+      void upsertTask({ task: archivedTask, userId: currentUserId, dueDate: archivedTask.dueDate, position: 0 })
+        .then(() => updateTaskArchiveState(archivedTask.id!, currentUserId, true))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Could not archive the saved-list task.";
+          setAuthNotice(message);
+          void loadTasksForUser(currentUserId);
+        });
+    }
+
+    setSavedListContextMenu(null);
   };
 
   const addTaskToActiveList = () => {
@@ -2369,7 +2600,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const activeListTasks = getPanelTasksForList(activeListId);
   const canCreateTaskInActiveList = activeListId !== RECURRING_LIST_ID && activeListId !== ARCHIVE_LIST_ID;
   const canManageActiveListTasks = canCreateTaskInActiveList;
-  const showListDetailPane = listDetailMode !== "hidden";
   const openListPanelWidthPx = showListDetailPane ? listPanelWidthPx : COLLAPSED_LIST_RAIL_WIDTH_PX;
 
   const renderListsPanel = () => (
@@ -2463,11 +2693,23 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
           <div
             onDragOver={(event) => {
-              event.preventDefault();
+              if (!isDayTaskDragActive || !canCreateTaskInActiveList) return;
+              handleSavedListViewerDragOver(activeListId, activeListTasks.length, event);
             }}
-            onDrop={(event) => handleDropToSavedList(activeListId, event)}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setSavedListDropTargetId((current) => (current === activeListId ? null : current));
+                setSavedListDropInsertIndex((current) => (savedListDropTargetId === activeListId ? null : current));
+              }
+            }}
+            onDrop={(event) => handleDropToSavedList(activeListId, event, savedListDropInsertIndex ?? activeListTasks.length)}
             className={`flex-1 overflow-auto rounded-lg border p-2 ${darkMode ? "border-[#4c3e74] bg-[#1a1428]" : "border-slate-200 bg-slate-50"}`}
           >
+            {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === 0 && canCreateTaskInActiveList ? (
+              <div className="mb-2 px-1">
+                <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
+              </div>
+            ) : null}
             {activeListTasks.length === 0 ? (
               <div className={`rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
                 {activeListId === RECURRING_LIST_ID
@@ -2488,32 +2730,52 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
                     isEditing={editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex}
                     isHovered={false}
                     isSearching={false}
-                    showDropIndicator={false}
+                    showDropIndicator={Boolean(
+                      isDayTaskDragActive &&
+                        savedListDropTargetId === activeListId &&
+                        savedListDropInsertIndex === taskIndex
+                    )}
                     editTaskInput={editingListTaskInput}
                     setEditTaskInput={setEditingListTaskInput}
                     saveEditedTask={saveEditingListTask}
                     cancelEditing={cancelEditingListTask}
                     onOpenExpandedTask={() => {
                       if (!canManageActiveListTasks) return;
-                      beginEditingListTask(activeListId, taskIndex);
+                      openExpandedSavedListTask(activeListId, taskIndex);
                     }}
                     onToggleCompleted={() => {
                       if (!canManageActiveListTasks) return;
                       toggleSavedListTaskCompleted(activeListId, taskIndex);
                     }}
                     onContextMenu={(event) => {
+                      if (!canManageActiveListTasks) return;
                       event.preventDefault();
                       event.stopPropagation();
+                      setContextMenu(null);
+                      setContextMenuMoveOpen(false);
+                      setContextMenuTagOpen(false);
+                      setContextMenuSavedTagsOpen(false);
+                      setContextMenuDueDateOpen(false);
+                      setContextMenuTagInput(task.tag ?? "");
+                      setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
+                      setContextMenuDueDateInput(task.dueDate ?? "");
+                      setContextMenuDueTimeInput(task.dueTime ?? "");
+                      setSavedListContextMenu({ listId: activeListId, taskIndex, x: event.clientX, y: event.clientY });
                     }}
                     onMouseEnter={() => {}}
                     onMouseLeave={() => {}}
                     onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
                     onDragEnd={() => {}}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => event.preventDefault()}
+                    onDragOver={(event) => handleSavedListViewerDragOver(activeListId, taskIndex, event)}
+                    onDrop={(event) => handleDropToSavedList(activeListId, event, taskIndex)}
                     editInputRef={editInputRef}
                   />
                 ))}
+                {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === activeListTasks.length ? (
+                  <div className="px-1">
+                    <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -3383,6 +3645,135 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     );
   };
 
+  const renderExpandedSavedListTaskModal = () => {
+    if (!expandedSavedListTask || !activeSavedListTask) return null;
+
+    const closeExpandedSavedListTask = () => {
+      suppressNextViewsCloseRef.current = true;
+      setExpandedSavedListTask(null);
+    };
+
+    return (
+      <div
+        ref={expandedSavedListModalRef}
+        className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 p-4"
+        onMouseDown={(event) => {
+          suppressNextViewsCloseRef.current = true;
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          closeExpandedSavedListTask();
+        }}
+      >
+        <div
+          className={`w-full max-w-2xl rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Task Detail
+              </p>
+              <h2 className="mt-1 text-xl font-semibold leading-tight">{activeSavedListTask.title || "Untitled Task"}</h2>
+              <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                {activeSavedList?.name ?? "Saved list"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={closeExpandedSavedListTask}
+              className={`rounded-md border px-3 py-1 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            <div className={`rounded-lg border p-3 ${darkMode ? "border-[#372a5d] bg-[#241c3c]" : "border-slate-200 bg-slate-50"}`}>
+              <p className="text-sm font-semibold">Task Details</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Title</p>
+                  <input
+                    type="text"
+                    value={activeSavedListTask.title}
+                    onChange={(e) => {
+                      if (!expandedSavedListTask) return;
+                      setSavedListTaskTitle(expandedSavedListTask.listId, expandedSavedListTask.taskIndex, e.target.value);
+                    }}
+                    placeholder="Task title"
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due date</p>
+                  <input
+                    type="date"
+                    value={activeSavedListTask.dueDate ?? ""}
+                    onChange={(e) => {
+                      if (!expandedSavedListTask) return;
+                      setSavedListTaskDueDate(expandedSavedListTask.listId, expandedSavedListTask.taskIndex, e.target.value);
+                    }}
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due time</p>
+                  <input
+                    type="time"
+                    value={activeSavedListTask.dueTime ?? ""}
+                    onChange={(e) => {
+                      if (!expandedSavedListTask) return;
+                      setSavedListTaskDueTime(expandedSavedListTask.listId, expandedSavedListTask.taskIndex, e.target.value);
+                    }}
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Priority</p>
+                  <select
+                    value={activeSavedListTask.priority ?? ""}
+                    onChange={(e) => {
+                      if (!expandedSavedListTask) return;
+                      setSavedListTaskPriority(
+                        expandedSavedListTask.listId,
+                        expandedSavedListTask.taskIndex,
+                        e.target.value as Task["priority"] | ""
+                      );
+                    }}
+                    className={`mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  >
+                    <option value="">Not set</option>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Description</p>
+                  <textarea
+                    value={activeSavedListTask.description ?? ""}
+                    onChange={(e) => {
+                      if (!expandedSavedListTask) return;
+                      setSavedListTaskDescription(expandedSavedListTask.listId, expandedSavedListTask.taskIndex, e.target.value);
+                    }}
+                    placeholder="Write a description..."
+                    rows={5}
+                    className={`mt-2 w-full rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-relaxed outline-none transition resize-none placeholder:text-slate-400 focus:resize-y ${darkMode ? "text-slate-100 focus:border-[#7d6ba6] focus:bg-[#2f2640]" : "text-slate-900 focus:border-slate-500 focus:bg-white"}`}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderArchivePanel = () => {
     if (!archivePanelOpen) return null;
 
@@ -3549,6 +3940,270 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     );
   };
 
+  const renderSavedListMoveMenu = () => {
+    if (!contextMenuMoveOpen || !savedListContextMenu) return null;
+
+    return (
+      <div className={`absolute left-full top-0 ml-1 max-h-40 w-48 overflow-auto rounded-md border px-1 py-1 shadow-lg ${darkMode ? "bg-[#241c3c] border-[#372a5d] text-slate-100" : "bg-white border-slate-200 text-slate-900"}`}>
+        {days.map((nextDay, dayIndex) => (
+          <button
+            key={`saved-list-move-${toDateKey(nextDay.date)}-${dayIndex}`}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              moveSavedListTaskToDay(savedListContextMenu.listId, savedListContextMenu.taskIndex, dayIndex, days[dayIndex].tasks.length);
+              setContextMenuMoveOpen(false);
+              setSavedListContextMenu(null);
+            }}
+            className={`w-full px-2 py-1 text-left text-sm transition ${darkMode ? "hover:bg-[#2f2640]" : "hover:bg-slate-100"}`}
+          >
+            {formatMonthDay(nextDay.date)} - {formatWeekdayShort(nextDay.date)}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderSavedListDueDateMenu = () => {
+    if (!contextMenuDueDateOpen || !savedListContextMenu) return null;
+
+    return (
+      <div className={`absolute left-full top-0 ml-1 w-48 rounded-md border px-1 py-1 shadow-lg ${darkMode ? "bg-[#241c3c] border-[#372a5d] text-slate-100" : "bg-white border-slate-200 text-slate-900"}`}>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              const todayDate = toDateKey(new Date());
+              setContextMenuDueDateInput(todayDate);
+              setSavedListTaskDueDate(savedListContextMenu.listId, savedListContextMenu.taskIndex, todayDate);
+              setContextMenuDueDateOpen(false);
+            }}
+            className={`min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[0.68rem] font-medium leading-none whitespace-nowrap transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              const tomorrowDate = toDateKey(addDays(new Date(), 1));
+              setContextMenuDueDateInput(tomorrowDate);
+              setSavedListTaskDueDate(savedListContextMenu.listId, savedListContextMenu.taskIndex, tomorrowDate);
+              setContextMenuDueDateOpen(false);
+            }}
+            className={`min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[0.68rem] font-medium leading-none whitespace-nowrap transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Tomorrow
+          </button>
+        </div>
+        <input
+          ref={contextMenuDueDateInputRef}
+          type="date"
+          value={contextMenuDueDateInput}
+          onChange={(event) => setContextMenuDueDateInput(event.target.value)}
+          onClick={(event) => {
+            event.stopPropagation();
+            contextMenuDueDateInputRef.current?.showPicker?.();
+          }}
+          className={`mt-1 w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? "bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "bg-white text-slate-900 focus:border-slate-500"}`}
+        />
+        <input
+          type="time"
+          value={contextMenuDueTimeInput}
+          onChange={(event) => setContextMenuDueTimeInput(event.target.value)}
+          className={`mt-1 w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? "bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "bg-white text-slate-900 focus:border-slate-500"}`}
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setSavedListTaskDueDate(savedListContextMenu.listId, savedListContextMenu.taskIndex, contextMenuDueDateInput);
+              setSavedListTaskDueTime(savedListContextMenu.listId, savedListContextMenu.taskIndex, contextMenuDueTimeInput);
+              setContextMenuDueDateOpen(false);
+            }}
+            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setContextMenuDueDateInput("");
+              setContextMenuDueTimeInput("");
+              setSavedListTaskDueDate(savedListContextMenu.listId, savedListContextMenu.taskIndex, "");
+              setSavedListTaskDueTime(savedListContextMenu.listId, savedListContextMenu.taskIndex, "");
+              setContextMenuDueDateOpen(false);
+            }}
+            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSavedListTagMenu = () => {
+    if (!contextMenuTagOpen || !savedListContextMenu) return null;
+
+    return (
+      <div className={`absolute left-full top-0 ml-1 w-48 rounded-md border px-1 py-1 shadow-lg ${darkMode ? "bg-[#241c3c] border-[#372a5d] text-slate-100" : "bg-white border-slate-200 text-slate-900"}`}>
+        <input
+          type="text"
+          value={contextMenuTagInput}
+          onChange={(event) => setContextMenuTagInput(event.target.value)}
+          placeholder="Set tag"
+          onFocus={() => setContextMenuSavedTagsOpen(true)}
+          onClick={() => setContextMenuSavedTagsOpen(true)}
+          autoComplete="off"
+          className={`w-full rounded-md border px-2 py-1 text-sm outline-none transition ${darkMode ? "bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "bg-white text-slate-900 focus:border-slate-500"}`}
+        />
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">Tags</p>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setContextMenuSavedTagsOpen((value) => !value);
+            }}
+            className={`rounded-md border px-2 py-1 text-[0.68rem] font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Saved tags
+          </button>
+        </div>
+        <div className="mt-2 grid grid-cols-6 gap-1">
+          {TAG_COLOR_OPTIONS.map((color) => {
+            const active = contextMenuTagColorInput === color;
+            return (
+              <button
+                key={`saved-list-context-tag-color-${color}`}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setContextMenuTagColorInput(color);
+                }}
+                className={`h-5 w-5 rounded-full border ${active ? "ring-2 ring-slate-400" : ""}`}
+                style={{ backgroundColor: color, borderColor: darkMode ? "#1f2937" : "#e2e8f0" }}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setSavedListTaskTag(savedListContextMenu.listId, savedListContextMenu.taskIndex, contextMenuTagInput, contextMenuTagColorInput);
+              setContextMenuTagOpen(false);
+            }}
+            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setContextMenuTagInput("");
+              setContextMenuTagColorInput("#22c55e");
+              setSavedListTaskTag(savedListContextMenu.listId, savedListContextMenu.taskIndex, "", "#22c55e");
+              setContextMenuTagOpen(false);
+            }}
+            className={`rounded-md border px-2 py-1 text-xs font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSavedListContextMenu = () => {
+    if (!savedListContextMenu) return null;
+
+    return (
+      <div
+        ref={contextMenuRef}
+        className="fixed z-[90] overflow-visible"
+        style={{ top: savedListContextMenu.y, left: savedListContextMenu.x }}
+        onMouseDown={() => {
+          suppressNextViewsCloseRef.current = true;
+        }}
+      >
+        <div className={`relative rounded-xl border shadow-lg ${darkMode ? "bg-[#241c3c] border-slate-700 text-slate-100" : "bg-white border-slate-300 text-slate-900"}`}>
+          <div className="relative flex flex-col items-stretch overflow-hidden rounded-xl">
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setContextMenuMoveOpen((value) => !value);
+                setContextMenuTagOpen(false);
+                setContextMenuDueDateOpen(false);
+              }}
+              className={`w-full border-b ${darkMode ? "border-slate-700" : "border-slate-300"} px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Move
+            </button>
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setContextMenuTagOpen((value) => !value);
+                setContextMenuMoveOpen(false);
+                setContextMenuSavedTagsOpen(false);
+                setContextMenuDueDateOpen(false);
+              }}
+              className={`w-full border-b ${darkMode ? "border-slate-700" : "border-slate-300"} px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Tag
+            </button>
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setContextMenuDueDateOpen((value) => !value);
+                setContextMenuMoveOpen(false);
+                setContextMenuTagOpen(false);
+              }}
+              className={`w-full border-b ${darkMode ? "border-slate-700" : "border-slate-300"} px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Due date
+            </button>
+            <button
+              type="button"
+              onMouseDown={() => {
+                suppressNextViewsCloseRef.current = true;
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                archiveSavedListTask(savedListContextMenu.listId, savedListContextMenu.taskIndex);
+              }}
+              className={`w-full px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "bg-white text-slate-900 hover:bg-slate-100"}`}
+            >
+              Archive
+            </button>
+          </div>
+
+          {renderSavedListMoveMenu()}
+          {renderSavedListDueDateMenu()}
+          {renderSavedListTagMenu()}
+        </div>
+      </div>
+    );
+  };
+
 
   return (
     <div className="space-y-0">
@@ -3689,6 +4344,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         </div>
       ) : null}
       {renderExpandedTaskModal()}
+      {renderExpandedSavedListTaskModal()}
+      {renderSavedListContextMenu()}
       {renderAuthDialog()}
       {renderAuthNotice()}
       {renderSmartTaskPreviewModal()}

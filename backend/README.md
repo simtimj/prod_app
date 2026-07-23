@@ -2,6 +2,7 @@
 
 This service owns backend logic for:
 - Task CRUD (`/tasks`, `/tasks/upsert`, `/tasks/reorder`, `/tasks/{task_id}/archive`)
+- Saved list persistence (`/lists`, `/lists/sync`)
 - Smart parse (`/parse-task`)
 - Health checks (`/health`)
 
