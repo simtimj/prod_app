@@ -1,4 +1,5 @@
-import type * as React from "react";
+import * as React from "react";
+import { createPortal } from "react-dom";
 
 import TaskCard from "./TaskCard";
 import type { Task } from "./kanbanTypes";
@@ -92,6 +93,9 @@ type ListsPanelProps = {
   handleListTabDragOver: (listId: string, event: React.DragEvent<HTMLButtonElement>) => void;
   handleListTabDrop: (listId: string, event: React.DragEvent<HTMLButtonElement>) => void;
   systemListTabs: ListTab[];
+  onRenameCustomList: (listId: string, nextName: string) => void;
+  onArchiveCustomListContents: (listId: string) => void;
+  onDeleteCustomListContents: (listId: string) => void;
 };
 
 export default function ListsPanel({
@@ -159,11 +163,100 @@ export default function ListsPanel({
   handleListTabDragOver,
   handleListTabDrop,
   systemListTabs,
+  onRenameCustomList,
+  onArchiveCustomListContents,
+  onDeleteCustomListContents,
 }: ListsPanelProps) {
+  const [customListContextMenu, setCustomListContextMenu] = React.useState<{ listId: string; x: number; y: number } | null>(null);
+  const customListContextMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const [renameListDialog, setRenameListDialog] = React.useState<{ listId: string; value: string } | null>(null);
+  const [archiveListDialog, setArchiveListDialog] = React.useState<{ listId: string; name: string; taskCount: number } | null>(null);
+  const [deleteListDialog, setDeleteListDialog] = React.useState<{ listId: string; name: string; taskCount: number } | null>(null);
+  const renameInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (!customListContextMenu) return;
+
+    const handleCloseMenu = (event: MouseEvent) => {
+      if (customListContextMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setCustomListContextMenu(null);
+    };
+
+    document.addEventListener("mousedown", handleCloseMenu);
+    return () => {
+      document.removeEventListener("mousedown", handleCloseMenu);
+    };
+  }, [customListContextMenu]);
+
+  React.useEffect(() => {
+    if (!renameListDialog) return;
+    renameInputRef.current?.focus();
+    renameInputRef.current?.select();
+  }, [renameListDialog]);
+
+  const customListContextMenuPortal =
+    customListContextMenu && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={customListContextMenuRef}
+            className="fixed z-[120]"
+            style={{ top: customListContextMenu.y, left: customListContextMenu.x }}
+          >
+            <div className={`overflow-hidden rounded-xl border shadow-lg ${darkMode ? "border-slate-700 bg-[#241c3c] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetList = customListTabs.find((list) => list.id === customListContextMenu.listId);
+                  const currentName = targetList?.name ?? "";
+                  setRenameListDialog({ listId: customListContextMenu.listId, value: currentName });
+                  setCustomListContextMenu(null);
+                }}
+                className={`block w-full border-b px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "border-slate-700 hover:bg-[#2f2640]" : "border-slate-300 hover:bg-slate-100"}`}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetList = customListTabs.find((list) => list.id === customListContextMenu.listId);
+                  setArchiveListDialog({
+                    listId: customListContextMenu.listId,
+                    name: targetList?.name ?? "Custom list",
+                    taskCount: targetList?.count ?? 0,
+                  });
+                  setCustomListContextMenu(null);
+                }}
+                className={`block w-full border-b px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "border-slate-700 hover:bg-[#2f2640]" : "border-slate-300 hover:bg-slate-100"}`}
+              >
+                Archive Contents
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetList = customListTabs.find((list) => list.id === customListContextMenu.listId);
+                  setDeleteListDialog({
+                    listId: customListContextMenu.listId,
+                    name: targetList?.name ?? "Custom list",
+                    taskCount: targetList?.count ?? 0,
+                  });
+                  setCustomListContextMenu(null);
+                }}
+                className={`block w-full px-3 py-2 text-left text-sm font-medium transition ${darkMode ? "hover:bg-[#2f2640]" : "hover:bg-slate-100"}`}
+              >
+                Delete Contents
+              </button>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <aside
       ref={listsPanelRef}
-      className={`absolute right-0 top-[-1px] bottom-4 z-60 ${showListDetailPane ? "rounded-none rounded-bl-xl border-r-0" : "w-[12.5rem] rounded-tl-none rounded-tr-xl rounded-br-xl rounded-bl-xl"} border shadow-xl transition-all duration-300 ${
+      className={`absolute right-0 top-[-1px] bottom-4 z-60 ${showListDetailPane ? "rounded-none rounded-bl-xl" : "w-[12.5rem] rounded-tl-none rounded-tr-xl rounded-br-xl rounded-bl-xl"} border shadow-xl transition-[transform,opacity] duration-300 ${
         viewsOpen
           ? "translate-x-0 opacity-100"
           : "pointer-events-none translate-x-12 opacity-0"
@@ -372,7 +465,7 @@ export default function ListsPanel({
           </div>
         ) : null}
 
-        <div className={`flex ${showListDetailPane ? "w-40 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#6a5a94] bg-[#181224]" : "border-slate-300 bg-slate-50"}`}>
+        <div className={`flex w-[12.5rem] border-l flex-col p-2 ${showListDetailPane ? (darkMode ? "border-[#6a5a94]" : "border-slate-300") : "border-transparent"} ${darkMode ? "bg-[#181224]" : "bg-slate-50"}`}>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
             <span className={`text-[0.7rem] font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               Lists
@@ -416,6 +509,11 @@ export default function ListsPanel({
                         setIsCreatingList(false);
                         setListDetailMode("list");
                       }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setCustomListContextMenu({ listId: list.id, x: event.clientX, y: event.clientY });
+                      }}
                       draggable
                       onDragStart={() => {
                         setDraggingListTabId(list.id);
@@ -438,9 +536,7 @@ export default function ListsPanel({
                             : "text-slate-700 hover:bg-white"
                       }`}
                     >
-                      <span className="ml-1 flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
-                      </span>
+                      <span className="ml-1 block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.82rem] font-medium leading-tight">{list.name}</span>
                       <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
                         {list.count}
                       </span>
@@ -481,9 +577,7 @@ export default function ListsPanel({
                             : "text-slate-700 hover:bg-white"
                       }`}
                     >
-                      <span className="ml-1 flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
-                      </span>
+                      <span className="ml-1 block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.82rem] font-medium leading-tight">{list.name}</span>
                       <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
                         {list.count}
                       </span>
@@ -495,6 +589,145 @@ export default function ListsPanel({
           </div>
         </div>
       </div>
+
+      {customListContextMenuPortal}
+
+      {renameListDialog ? (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setRenameListDialog(null)}
+        >
+          <div
+            className={`w-full max-w-sm rounded-xl border p-4 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold">Rename Custom List</p>
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameListDialog.value}
+              onChange={(event) =>
+                setRenameListDialog((current) =>
+                  current
+                    ? {
+                        ...current,
+                        value: event.target.value,
+                      }
+                    : current
+                )
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setRenameListDialog(null);
+                  return;
+                }
+
+                if (event.key === "Enter") {
+                  const nextName = renameListDialog.value.trim();
+                  if (!nextName) return;
+                  onRenameCustomList(renameListDialog.listId, nextName);
+                  setRenameListDialog(null);
+                }
+              }}
+              placeholder="List name"
+              className={`mt-3 w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+            />
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRenameListDialog(null)}
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextName = renameListDialog.value.trim();
+                  if (!nextName) return;
+                  onRenameCustomList(renameListDialog.listId, nextName);
+                  setRenameListDialog(null);
+                }}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition ${darkMode ? "border-[#7d6ba6] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-900 hover:bg-slate-200"}`}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {archiveListDialog ? (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setArchiveListDialog(null)}
+        >
+          <div
+            className={`w-full max-w-sm rounded-xl border p-4 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold">Archive List Contents</p>
+            <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+              Archive all tasks from &quot;{archiveListDialog.name}&quot;? ({archiveListDialog.taskCount} task{archiveListDialog.taskCount === 1 ? "" : "s"})
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setArchiveListDialog(null)}
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onArchiveCustomListContents(archiveListDialog.listId);
+                  setArchiveListDialog(null);
+                }}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition ${darkMode ? "border-amber-500/70 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30" : "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"}`}
+              >
+                Archive
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteListDialog ? (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setDeleteListDialog(null)}
+        >
+          <div
+            className={`w-full max-w-sm rounded-xl border p-4 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold">Delete Contents</p>
+            <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+              Remove all tasks from &quot;{deleteListDialog.name}&quot;? ({deleteListDialog.taskCount} task{deleteListDialog.taskCount === 1 ? "" : "s"})
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteListDialog(null)}
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteCustomListContents(deleteListDialog.listId);
+                  setDeleteListDialog(null);
+                }}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition ${darkMode ? "border-red-500/70 bg-red-500/20 text-red-100 hover:bg-red-500/30" : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"}`}
+              >
+                Delete Contents
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

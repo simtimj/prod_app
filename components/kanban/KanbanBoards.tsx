@@ -567,12 +567,63 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     };
   }, [days, selectedIndex]);
 
+  const goToday = useCallback(() => {
+    const now = new Date();
+    const todayDateKey = toDateKey(now);
+    pendingScrollToDateKeyRef.current = todayDateKey;
+    ignoreScrollRef.current = false;
+    preferredDateKeyRef.current = todayDateKey;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, todayDateKey);
+    }
+
+    let nextDays = days;
+    let nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+
+    if (nextTodayIndex < 0) {
+      if (nextDays.length === 0) {
+        nextDays = buildRollingDayColumns(now);
+        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+      }
+
+      while (nextTodayIndex < 0) {
+        const firstDate = nextDays[0]?.date;
+        const lastDate = nextDays[nextDays.length - 1]?.date;
+        if (!firstDate || !lastDate) {
+          nextDays = buildRollingDayColumns(now);
+          nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+          break;
+        }
+
+        if (now < firstDate) {
+          nextDays = [...buildAdjacentDayColumns(firstDate, ROLLING_EXTENSION_DAYS, "past"), ...nextDays];
+        } else {
+          nextDays = [...nextDays, ...buildAdjacentDayColumns(lastDate, ROLLING_EXTENSION_DAYS, "future")];
+        }
+
+        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+      }
+    }
+
+    if (nextDays !== days) {
+      setDays(nextDays);
+      setToday(now);
+      return;
+    }
+
+    if (nextTodayIndex >= 0) {
+      setSelectedIndex(nextTodayIndex);
+    }
+
+    setToday(now);
+  }, [days]);
+
   useEffect(() => {
     const refreshTodayIfDayChanged = () => {
       const currentDateKey = toDateKey(new Date());
       const anchoredDateKey = toDateKey(today);
       if (currentDateKey === anchoredDateKey) return;
-      setToday(new Date());
+      goToday();
     };
 
     const restoreSelectedDayScroll = () => {
@@ -602,7 +653,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       window.removeEventListener("focus", restoreSelectedDayScroll);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [selectedIndex, today]);
+  }, [goToday, selectedIndex, today]);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -907,57 +958,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     return nearestIndex;
   }, [selectedIndex]);
-
-  const goToday = () => {
-    const now = new Date();
-    const todayDateKey = toDateKey(now);
-    pendingScrollToDateKeyRef.current = todayDateKey;
-    ignoreScrollRef.current = false;
-    preferredDateKeyRef.current = todayDateKey;
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, todayDateKey);
-    }
-
-    let nextDays = days;
-    let nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
-
-    if (nextTodayIndex < 0) {
-      if (nextDays.length === 0) {
-        nextDays = buildRollingDayColumns(now);
-        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
-      }
-
-      while (nextTodayIndex < 0) {
-        const firstDate = nextDays[0]?.date;
-        const lastDate = nextDays[nextDays.length - 1]?.date;
-        if (!firstDate || !lastDate) {
-          nextDays = buildRollingDayColumns(now);
-          nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
-          break;
-        }
-
-        if (now < firstDate) {
-          nextDays = [...buildAdjacentDayColumns(firstDate, ROLLING_EXTENSION_DAYS, "past"), ...nextDays];
-        } else {
-          nextDays = [...nextDays, ...buildAdjacentDayColumns(lastDate, ROLLING_EXTENSION_DAYS, "future")];
-        }
-
-        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
-      }
-    }
-
-    if (nextDays !== days) {
-      setDays(nextDays);
-      setToday(now);
-      return;
-    }
-
-    if (nextTodayIndex >= 0) {
-      setSelectedIndex(nextTodayIndex);
-    }
-
-    setToday(now);
-  };
 
   const openAuthDialog = (nextAction: AuthAction) => {
     setAuthAction(nextAction);
@@ -2470,6 +2470,104 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setListDetailMode("list");
   };
 
+  const renameCustomList = (listId: string, nextNameRaw: string) => {
+    const nextName = nextNameRaw.trim();
+    if (!nextName) return;
+
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              name: nextName,
+            }
+          : list
+      )
+    );
+  };
+
+  const archiveCustomListContents = (listId: string) => {
+    const targetList = savedLists.find((list) => list.id === listId);
+    if (!targetList || targetList.tasks.length === 0) return;
+
+    const archivedAt = new Date().toISOString();
+    const nextArchivedEntries: ArchivedTaskEntry[] = targetList.tasks.map((task, taskIndex) => ({
+      id: `${archivedAt}-${listId}-${taskIndex}`,
+      taskId: task.id,
+      userId: task.userId,
+      task,
+      dayLabel: targetList.name,
+      archivedAt,
+    }));
+
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              tasks: [],
+            }
+          : list
+      )
+    );
+    setArchivedTasks((currentArchived) => [...nextArchivedEntries, ...currentArchived]);
+
+    if (expandedSavedListTask?.listId === listId) {
+      setExpandedSavedListTask(null);
+    }
+
+    if (currentUserId) {
+      void Promise.all(
+        targetList.tasks.map((task) => {
+          const archivedTask: Task = {
+            ...task,
+            id: task.id ?? crypto.randomUUID(),
+            userId: currentUserId,
+            createdAt: task.createdAt ?? archivedAt,
+            updatedAt: archivedAt,
+          };
+
+          return upsertTask({
+            task: archivedTask,
+            userId: currentUserId,
+            dueDate: archivedTask.dueDate,
+            position: 0,
+          }).then(() => updateTaskArchiveState(archivedTask.id!, currentUserId, true));
+        })
+      ).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Could not archive custom list contents.";
+        setAuthNotice(message);
+        void loadTasksForUser(currentUserId);
+      });
+    }
+  };
+
+  const deleteCustomListContents = (listId: string) => {
+    if (listId === BACKLOG_LIST_ID || listId === RECURRING_LIST_ID || listId === ARCHIVE_LIST_ID) {
+      return;
+    }
+
+    setSavedLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              tasks: [],
+            }
+          : list
+      )
+    );
+
+    if (expandedSavedListTask?.listId === listId) {
+      setExpandedSavedListTask(null);
+    }
+
+    if (editingListTask?.listId === listId) {
+      setEditingListTask(null);
+      setEditingListTaskInput("");
+    }
+  };
+
   const updateTaskInSavedList = (listId: string, taskIndex: number, updater: (task: Task) => Task) => {
     setSavedLists((current) =>
       current.map((list) =>
@@ -2801,6 +2899,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       handleListTabDragOver={handleListTabDragOver}
       handleListTabDrop={handleListTabDrop}
       systemListTabs={systemListTabs}
+      onRenameCustomList={renameCustomList}
+      onArchiveCustomListContents={archiveCustomListContents}
+      onDeleteCustomListContents={deleteCustomListContents}
     />
   );
 
