@@ -1,4 +1,4 @@
-import { RecurrenceFrequency, SavedList, Task } from "@/components/kanbanTypes";
+import { RecurrenceFrequency, SavedList, Task } from "@/components/kanban/kanbanTypes";
 
 export type SupabaseTaskRow = {
   id: string;

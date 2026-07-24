@@ -1,4 +1,4 @@
-import { ArchivedTaskEntry, DayColumn, Task } from "@/components/kanbanTypes";
+import { ArchivedTaskEntry, DayColumn, Task } from "@/components/kanban/kanbanTypes";
 import { SupabaseTaskRow } from "@/lib/database/types";
 
 export const getDateKey = (date: Date) => {

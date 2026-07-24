@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import KanbanColumn from "@/components/KanbanColumn";
-import TaskCard from "@/components/TaskCard";
-import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, SavedList, Task } from "@/components/kanbanTypes";
+import KanbanColumn from "./KanbanColumn";
+import ListsPanel from "./ListsPanel";
+import OptionsDropdown from "./OptionsDropdown";
+import SettingsDropdown from "./SettingsDropdown";
+import { ArchivedTaskEntry, ArchivedTaskSnapshot, DayColumn, ParsedTaskDraft, ParseTaskResponse, RecurrenceFrequency, SavedList, Task } from "./kanbanTypes";
 import {
   RECURRENCE_WEEKDAY_LABELS,
   TAG_COLOR_OPTIONS,
@@ -16,7 +18,7 @@ import {
   formatWeekdayLong,
   formatWeekdayShort,
   lightColors,
-} from "@/components/kanbanUtils";
+} from "./kanbanUtils";
 import {
   getCurrentSession,
   signInWithEmailPassword,
@@ -2734,454 +2736,99 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const openListPanelWidthPx = showListDetailPane ? listPanelWidthPx : COLLAPSED_LIST_RAIL_WIDTH_PX;
 
   const renderListsPanel = () => (
-    <aside
-      ref={listsPanelRef}
-      className={`absolute right-0 top-[-1px] bottom-4 z-60 ${showListDetailPane ? "rounded-none rounded-bl-xl border-r-0" : "w-[12.5rem] rounded-tl-none rounded-tr-xl rounded-br-xl rounded-bl-xl"} border shadow-xl transition-all duration-300 ${
-        viewsOpen
-          ? "translate-x-0 opacity-100"
-          : "pointer-events-none translate-x-12 opacity-0"
-      } ${darkMode ? "border-[#5a4a84] bg-[#1f1830] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
-      style={
-        showListDetailPane
-          ? {
-              width: `${listPanelWidthPx}px`,
-              backgroundImage: darkMode
-                ? "linear-gradient(#6a5a94, #6a5a94)"
-                : "linear-gradient(#cbd5e1, #cbd5e1)",
-              backgroundPosition: "left top",
-              backgroundRepeat: "no-repeat",
-              backgroundSize: "1px 100%",
-            }
-          : undefined
-      }
-    >
-      {showListDetailPane ? (
-        <div
-          role="separator"
-          aria-label="Resize lists panel"
-          onMouseDown={startListPanelResize}
-          className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize ${darkMode ? "hover:bg-[#7d6ba655]" : "hover:bg-slate-300/70"}`}
-        />
-      ) : null}
-      <div className="flex h-full">
-        {showListDetailPane ? (
-        <div className="flex min-w-0 flex-1 flex-col p-3 pr-2">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className={`truncate text-sm font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                {isCreatingList
-                  ? "Create New List"
-                  : allListTabs.find((list) => list.id === activeListId)?.name ?? "Lists"}
-              </h3>
-              <p className={`mt-1 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                {isCreatingList
-                  ? "Enter a name for your new list"
-                  : `${allListTabs.find((list) => list.id === activeListId)?.count ?? 0} tasks`}
-              </p>
-            </div>
-          </div>
-
-          {isCreatingList ? (
-            <div className="mb-2 flex gap-1.5">
-              <input
-                ref={newListInputRef}
-                type="text"
-                value={newListName}
-                onChange={(event) => setNewListName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") addSavedList();
-                  if (event.key === "Escape") {
-                    setIsCreatingList(false);
-                    setNewListName("");
-                    setListDetailMode("hidden");
-                  }
-                }}
-                placeholder="Create a list"
-                className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
-              />
-              <button
-                type="button"
-                onClick={addSavedList}
-                className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
-              >
-                Save
-              </button>
-            </div>
-          ) : null}
-
-          {!isCreatingList ? (
-            <>
-              {canCreateTaskInActiveList ? (
-                <div className="mb-2 flex gap-1.5">
-                  <input
-                    type="text"
-                    value={newListTaskInput}
-                    onChange={(event) => setNewListTaskInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        addTaskToActiveList();
-                      }
-                    }}
-                    placeholder="Add a task to this list"
-                    className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm outline-none ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100" : "border-slate-300 bg-white text-slate-900"}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={addTaskToActiveList}
-                    className={`rounded-md border px-2 py-1.5 text-xs font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
-                  >
-                    Add
-                  </button>
-                </div>
-              ) : null}
-
-              <div
-                onDragOver={(event) => {
-                  if (!isDayTaskDragActive || !canCreateTaskInActiveList) return;
-                  handleSavedListViewerDragOver(activeListId, activeListTasks.length, event);
-                }}
-                onDragLeave={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                    setSavedListDropTargetId((current) => (current === activeListId ? null : current));
-                    setSavedListDropInsertIndex((current) => (savedListDropTargetId === activeListId ? null : current));
-                  }
-                }}
-                onDrop={(event) => handleDropToSavedList(activeListId, event, savedListDropInsertIndex ?? activeListTasks.length)}
-                className={`flex-1 overflow-auto rounded-lg border p-2 ${darkMode ? "border-[#4c3e74] bg-[#1a1428]" : "border-slate-200 bg-slate-50"}`}
-              >
-                {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === 0 && canCreateTaskInActiveList ? (
-                  <div className="mb-2 px-1">
-                    <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
-                  </div>
-                ) : null}
-                {activeListTasks.length === 0 ? (
-                  <div className={`rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
-                    {activeListId === RECURRING_LIST_ID
-                      ? "Recurring tasks will appear here automatically."
-                      : activeListId === ARCHIVE_LIST_ID
-                        ? "Archived tasks appear here."
-                        : "No tasks yet. Drag one in from a day column."}
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {activeListTasks.map((task, taskIndex) => (
-                      <TaskCard
-                        key={`${activeListId}-${task.id ?? task.title}-${taskIndex}`}
-                        task={task}
-                        dayIndex={0}
-                        taskIndex={taskIndex}
-                        darkMode={darkMode}
-                        isEditing={editingListTask?.listId === activeListId && editingListTask?.taskIndex === taskIndex}
-                        isHovered={false}
-                        isSearching={false}
-                        showDropIndicator={Boolean(
-                          isDayTaskDragActive &&
-                            savedListDropTargetId === activeListId &&
-                            savedListDropInsertIndex === taskIndex
-                        )}
-                        editTaskInput={editingListTaskInput}
-                        setEditTaskInput={setEditingListTaskInput}
-                        saveEditedTask={saveEditingListTask}
-                        cancelEditing={cancelEditingListTask}
-                        onOpenExpandedTask={() => {
-                          if (activeListId === ARCHIVE_LIST_ID) return;
-                          if (!canManageActiveListTasks) return;
-                          openExpandedSavedListTask(activeListId, taskIndex);
-                        }}
-                        onToggleCompleted={() => {
-                          if (activeListId === ARCHIVE_LIST_ID) return;
-                          if (!canManageActiveListTasks) return;
-                          toggleSavedListTaskCompleted(activeListId, taskIndex);
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          if (activeListId === ARCHIVE_LIST_ID) {
-                            setContextMenu(null);
-                            setContextMenuMoveOpen(false);
-                            setContextMenuTagOpen(false);
-                            setContextMenuSavedTagsOpen(false);
-                            setContextMenuDueDateOpen(false);
-                            setSavedListContextMenu(null);
-                            setArchiveTaskContextMenu({ entryIndex: taskIndex, x: event.clientX, y: event.clientY });
-                            return;
-                          }
-
-                          if (!canManageActiveListTasks) return;
-                          setContextMenu(null);
-                          setContextMenuMoveOpen(false);
-                          setContextMenuTagOpen(false);
-                          setContextMenuSavedTagsOpen(false);
-                          setContextMenuDueDateOpen(false);
-                          setContextMenuTagInput(task.tag ?? "");
-                          setContextMenuTagColorInput(task.tagColor ?? "#22c55e");
-                          setContextMenuDueDateInput(task.dueDate ?? "");
-                          setContextMenuDueTimeInput(task.dueTime ?? "");
-                          setSavedListContextMenu({ listId: activeListId, taskIndex, x: event.clientX, y: event.clientY });
-                        }}
-                        onMouseEnter={() => {}}
-                        onMouseLeave={() => {}}
-                        onDragStart={(event) => handleSavedListTaskDragStart(activeListId, taskIndex, event)}
-                        onDragEnd={() => {}}
-                        onDragOver={(event) => handleSavedListViewerDragOver(activeListId, taskIndex, event)}
-                        onDrop={(event) => handleDropToSavedList(activeListId, event, taskIndex)}
-                        editInputRef={editInputRef}
-                      />
-                    ))}
-                    {isDayTaskDragActive && savedListDropTargetId === activeListId && savedListDropInsertIndex === activeListTasks.length ? (
-                      <div className="px-1">
-                        <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className={`flex flex-1 items-start justify-center rounded-lg border border-dashed px-3 py-4 text-xs ${darkMode ? "border-[#4c3e74] text-slate-400" : "border-slate-300 text-slate-500"}`}>
-              Enter a name above to create the new list.
-            </div>
-          )}
-        </div>
-        ) : null}
-
-        <div className={`flex ${showListDetailPane ? "w-40 border-l" : "w-full"} flex-col p-2 ${darkMode ? "border-[#6a5a94] bg-[#181224]" : "border-slate-300 bg-slate-50"}`}>
-          <div className="mb-2 flex items-center justify-between gap-2 px-1">
-            <span className={`text-[0.7rem] font-semibold uppercase tracking-[0.14em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-              Lists
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                if (isCreatingList) {
-                  setIsCreatingList(false);
-                  setNewListName("");
-                  setListDetailMode("hidden");
-                  return;
-                }
-
-                setIsCreatingList(true);
-                setListDetailMode("create");
-              }}
-              className={`rounded-md border px-2 py-1 text-sm font-semibold transition ${darkMode ? "border-[#4c3e74] bg-[#2a2142] text-slate-100 hover:bg-[#3b315a]" : "border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200"}`}
-              title="Create saved list"
-            >
-              +
-            </button>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="grid gap-1">
-              {customListTabs.map((list) => {
-                const isActive = list.id === activeListId;
-                const showDropBefore = draggingListTabId && listTabDropTargetId === list.id && listTabDropPosition === "before";
-                const showDropAfter = draggingListTabId && listTabDropTargetId === list.id && listTabDropPosition === "after";
-
-                return (
-                  <div key={list.id} className="space-y-1">
-                    {showDropBefore ? <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} /> : null}
-                    <button
-                      type="button"
-                      onMouseEnter={(event) => showListNameTooltipWithDelay(list.name, event)}
-                      onMouseMove={updateListNameTooltipPosition}
-                      onMouseLeave={hideListNameTooltip}
-                      onBlur={hideListNameTooltip}
-                      onClick={() => {
-                        setActiveListId(list.id);
-                        setIsCreatingList(false);
-                        setListDetailMode("list");
-                      }}
-                      draggable
-                      onDragStart={() => {
-                        setDraggingListTabId(list.id);
-                        setListTabDropTargetId(list.id);
-                        setListTabDropPosition("before");
-                      }}
-                      onDragEnd={() => {
-                        setDraggingListTabId(null);
-                        setListTabDropTargetId(null);
-                      }}
-                      onDragOver={(event) => handleListTabDragOver(list.id, event)}
-                      onDrop={(event) => handleListTabDrop(list.id, event)}
-                      className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
-                        isActive
-                          ? darkMode
-                            ? "bg-[#3b315a] text-white shadow-sm"
-                            : "bg-slate-200 text-slate-900 shadow-sm"
-                          : darkMode
-                            ? "text-slate-200 hover:bg-[#2a2142]"
-                            : "text-slate-700 hover:bg-white"
-                      }`}
-                    >
-                      <span className="ml-1 flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
-                      </span>
-                      <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
-                        {list.count}
-                      </span>
-                    </button>
-                    {showDropAfter ? <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} /> : null}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className={`mt-2 pt-2 ${darkMode ? "border-t border-[#4c3e74]" : "border-t border-slate-200"}`}>
-              <div className="grid gap-1">
-                {systemListTabs.map((list) => {
-                  const isActive = list.id === activeListId;
-
-                  return (
-                    <button
-                      key={list.id}
-                      type="button"
-                      onMouseEnter={(event) => showListNameTooltipWithDelay(list.name, event)}
-                      onMouseMove={updateListNameTooltipPosition}
-                      onMouseLeave={hideListNameTooltip}
-                      onBlur={hideListNameTooltip}
-                      onClick={() => {
-                        setActiveListId(list.id);
-                        setIsCreatingList(false);
-                        setListDetailMode("list");
-                      }}
-                      onDragOver={(event) => handleListTabDragOver(list.id, event)}
-                      onDrop={(event) => handleListTabDrop(list.id, event)}
-                      className={`relative flex items-center justify-between overflow-hidden rounded-md px-2 py-1.5 text-left text-sm transition ${
-                        isActive
-                          ? darkMode
-                            ? "bg-[#3b315a] text-white shadow-sm"
-                            : "bg-slate-200 text-slate-900 shadow-sm"
-                          : darkMode
-                            ? "text-slate-200 hover:bg-[#2a2142]"
-                            : "text-slate-700 hover:bg-white"
-                      }`}
-                    >
-                      <span className="ml-1 flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[0.82rem] font-medium leading-tight">{list.name}</span>
-                      </span>
-                      <span className={`ml-1 shrink-0 rounded-full px-1 py-0.5 text-[0.68rem] ${darkMode ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
-                        {list.count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </aside>
+    <ListsPanel
+      darkMode={darkMode}
+      viewsOpen={viewsOpen}
+      showListDetailPane={showListDetailPane}
+      listPanelWidthPx={listPanelWidthPx}
+      listsPanelRef={listsPanelRef}
+      startListPanelResize={startListPanelResize}
+      isCreatingList={isCreatingList}
+      allListTabs={allListTabs}
+      activeListId={activeListId}
+      newListName={newListName}
+      setNewListName={setNewListName}
+      addSavedList={addSavedList}
+      setIsCreatingList={setIsCreatingList}
+      setListDetailMode={setListDetailMode}
+      newListInputRef={newListInputRef}
+      canCreateTaskInActiveList={canCreateTaskInActiveList}
+      newListTaskInput={newListTaskInput}
+      setNewListTaskInput={setNewListTaskInput}
+      addTaskToActiveList={addTaskToActiveList}
+      isDayTaskDragActive={isDayTaskDragActive}
+      handleSavedListViewerDragOver={handleSavedListViewerDragOver}
+      activeListTasks={activeListTasks}
+      savedListDropTargetId={savedListDropTargetId}
+      savedListDropInsertIndex={savedListDropInsertIndex}
+      setSavedListDropTargetId={setSavedListDropTargetId}
+      setSavedListDropInsertIndex={setSavedListDropInsertIndex}
+      handleDropToSavedList={handleDropToSavedList}
+      recurringListId={RECURRING_LIST_ID}
+      archiveListId={ARCHIVE_LIST_ID}
+      editingListTask={editingListTask}
+      editingListTaskInput={editingListTaskInput}
+      setEditingListTaskInput={setEditingListTaskInput}
+      saveEditingListTask={saveEditingListTask}
+      cancelEditingListTask={cancelEditingListTask}
+      openExpandedSavedListTask={openExpandedSavedListTask}
+      canManageActiveListTasks={canManageActiveListTasks}
+      toggleSavedListTaskCompleted={toggleSavedListTaskCompleted}
+      setContextMenu={setContextMenu}
+      setContextMenuMoveOpen={setContextMenuMoveOpen}
+      setContextMenuTagOpen={setContextMenuTagOpen}
+      setContextMenuSavedTagsOpen={setContextMenuSavedTagsOpen}
+      setContextMenuDueDateOpen={setContextMenuDueDateOpen}
+      setContextMenuTagInput={setContextMenuTagInput}
+      setContextMenuTagColorInput={setContextMenuTagColorInput}
+      setContextMenuDueDateInput={setContextMenuDueDateInput}
+      setContextMenuDueTimeInput={setContextMenuDueTimeInput}
+      setSavedListContextMenu={setSavedListContextMenu}
+      setArchiveTaskContextMenu={setArchiveTaskContextMenu}
+      handleSavedListTaskDragStart={handleSavedListTaskDragStart}
+      editInputRef={editInputRef}
+      customListTabs={customListTabs}
+      draggingListTabId={draggingListTabId}
+      listTabDropTargetId={listTabDropTargetId}
+      listTabDropPosition={listTabDropPosition}
+      showListNameTooltipWithDelay={showListNameTooltipWithDelay}
+      updateListNameTooltipPosition={updateListNameTooltipPosition}
+      hideListNameTooltip={hideListNameTooltip}
+      setActiveListId={setActiveListId}
+      setDraggingListTabId={setDraggingListTabId}
+      setListTabDropTargetId={setListTabDropTargetId}
+      setListTabDropPosition={setListTabDropPosition}
+      handleListTabDragOver={handleListTabDragOver}
+      handleListTabDrop={handleListTabDrop}
+      systemListTabs={systemListTabs}
+    />
   );
 
-  const renderOptionsDropdown = () => {
-    if (!optionsOpen) return null;
+  const renderOptionsDropdown = () => (
+    <OptionsDropdown
+      darkMode={darkMode}
+      optionsOpen={optionsOpen}
+      optionsMenuPosition={optionsMenuPosition}
+      currentUserId={currentUserId}
+      currentUserEmail={currentUserEmail}
+      openAuthDialog={openAuthDialog}
+      handleImmediateSignOut={handleImmediateSignOut}
+      closeOptionsMenu={closeOptionsMenu}
+      setDarkMode={setDarkMode}
+      setArchivePanelOpen={setArchivePanelOpen}
+    />
+  );
 
-    const isSignedIn = Boolean(currentUserId);
-    const signedInLabel = currentUserEmail ? `Signed in as ${currentUserEmail}` : "Signed in";
-
-    return (
-      <div
-        className={`fixed z-[130] rounded-md border p-2 text-sm shadow-2xl ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-        style={{
-          top: optionsMenuPosition?.top ?? 0,
-          left: optionsMenuPosition?.left ?? 0,
-          minWidth: optionsMenuPosition?.minWidth ?? 176,
-          borderTopRightRadius: 0,
-        }}
-      >
-        {isSignedIn ? (
-          <p className={`mb-2 rounded-md border px-2 py-1.5 text-xs font-medium ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
-            {signedInLabel}
-          </p>
-        ) : null}
-        <div className="mb-2 grid gap-1">
-          {!isSignedIn ? (
-            <>
-              <button
-                type="button"
-                onClick={() => openAuthDialog("signup")}
-                className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-              >
-                Sign Up
-              </button>
-              <button
-                type="button"
-                onClick={() => openAuthDialog("signin")}
-                className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-              >
-                Sign In
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={handleImmediateSignOut}
-              className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-            >
-              Sign Out
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setDarkMode((prev) => !prev);
-            closeOptionsMenu();
-          }}
-          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-        >
-          {darkMode ? "Switch to Light" : "Switch to Dark"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setArchivePanelOpen(true);
-            closeOptionsMenu();
-          }}
-          className={`mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-        >
-          Archive
-        </button>
-      </div>
-    );
-  };
-
-  const renderSettingsDropdown = () => {
-    if (!settingsOpen) return null;
-
-    return (
-      <div
-        className={`fixed z-[130] rounded-md border p-2 text-sm shadow-2xl ${darkMode ? 'bg-[#241c3c] border-[#372a5d] text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-        style={{
-          top: settingsMenuPosition?.top ?? 0,
-          left: settingsMenuPosition?.left ?? 0,
-          minWidth: settingsMenuPosition?.minWidth ?? 176,
-          borderTopRightRadius: 0,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            void saveListPanelWidthPreference();
-            closeSettingsMenu();
-          }}
-          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-        >
-          Save list width
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            void resetListPanelSize();
-            closeSettingsMenu();
-          }}
-          className={`mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? 'border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'}`}
-        >
-          Reset list sizes
-        </button>
-      </div>
-    );
-  };
+  const renderSettingsDropdown = () => (
+    <SettingsDropdown
+      darkMode={darkMode}
+      settingsOpen={settingsOpen}
+      settingsMenuPosition={settingsMenuPosition}
+      saveListPanelWidthPreference={saveListPanelWidthPreference}
+      resetListPanelSize={resetListPanelSize}
+      closeSettingsMenu={closeSettingsMenu}
+    />
+  );
 
   const renderAuthDialog = () => {
     if (!authAction) return null;

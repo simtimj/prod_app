@@ -1,4 +1,4 @@
-import { SavedList, Task } from "@/components/kanbanTypes";
+import { SavedList, Task } from "@/components/kanban/kanbanTypes";
 import { getCurrentSession } from "@/lib/database/authRepository";
 import { SavedListResponse, SupabaseSavedListRow, SupabaseSavedListTaskRow } from "@/lib/database/types";
 
