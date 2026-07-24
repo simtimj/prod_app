@@ -63,6 +63,7 @@ const ROLLING_PAST_DAYS = 14;
 const ROLLING_FUTURE_DAYS = 14;
 const ROLLING_EXTENSION_DAYS = 7;
 const ROLLING_EDGE_THRESHOLD_DAYS = 3;
+const DEFAULT_RETURN_TO_TODAY_ON_FOCUS = true;
 
 function clampListPanelWidth(width: number): number {
   return Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, width));
@@ -235,6 +236,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [isCreatingList, setIsCreatingList] = useState(false);
   const [listDetailMode, setListDetailMode] = useState<"hidden" | "list" | "create">("hidden");
   const [listPanelWidthPx, setListPanelWidthPx] = useState(DEFAULT_LIST_PANEL_WIDTH_PX);
+  const [returnToTodayOnFocus, setReturnToTodayOnFocus] = useState(DEFAULT_RETURN_TO_TODAY_ON_FOCUS);
   const [listNameTooltip, setListNameTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const newListInputRef = useRef<HTMLInputElement | null>(null);
   const listNameTooltipDelayRef = useRef<number | null>(null);
@@ -299,12 +301,15 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (!currentUserId) return;
 
     try {
-      await syncUserSettingsForUser({ listPanelWidthPx: nextWidth });
+      await syncUserSettingsForUser({
+        listPanelWidthPx: nextWidth,
+        returnToTodayOnFocus,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save list width.";
       setAuthNotice(message);
     }
-  }, [currentUserId, listPanelWidthPx]);
+  }, [currentUserId, listPanelWidthPx, returnToTodayOnFocus]);
 
   const resetListPanelSize = useCallback(async () => {
     setListPanelWidthPx(DEFAULT_LIST_PANEL_WIDTH_PX);
@@ -316,12 +321,33 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (!currentUserId) return;
 
     try {
-      await syncUserSettingsForUser({ listPanelWidthPx: DEFAULT_LIST_PANEL_WIDTH_PX });
+      await syncUserSettingsForUser({
+        listPanelWidthPx: DEFAULT_LIST_PANEL_WIDTH_PX,
+        returnToTodayOnFocus,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not reset list width.";
       setAuthNotice(message);
     }
-  }, [currentUserId]);
+  }, [currentUserId, returnToTodayOnFocus]);
+
+  const toggleReturnToTodayOnFocusPreference = useCallback(async () => {
+    const nextValue = !returnToTodayOnFocus;
+    setReturnToTodayOnFocus(nextValue);
+
+    if (!currentUserId) return;
+
+    try {
+      await syncUserSettingsForUser({
+        listPanelWidthPx: Math.round(listPanelWidthPx),
+        returnToTodayOnFocus: nextValue,
+      });
+    } catch (error) {
+      setReturnToTodayOnFocus(!nextValue);
+      const message = error instanceof Error ? error.message : "Could not save focus behavior setting.";
+      setAuthNotice(message);
+    }
+  }, [currentUserId, listPanelWidthPx, returnToTodayOnFocus]);
 
   const handleListPanelResizeMouseMove = useCallback((event: MouseEvent) => {
     const resizeState = listPanelResizeRef.current;
@@ -612,11 +638,19 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     }
 
     if (nextTodayIndex >= 0) {
-      setSelectedIndex(nextTodayIndex);
+      if (selectedIndex !== nextTodayIndex) {
+        setSelectedIndex(nextTodayIndex);
+      } else {
+        // When today is already selected, force realignment in case the scroll position was reset.
+        pendingScrollToDateKeyRef.current = null;
+        requestAnimationFrame(() => {
+          scrollDayToStart(nextTodayIndex, false);
+        });
+      }
     }
 
     setToday(now);
-  }, [days]);
+  }, [days, selectedIndex]);
 
   useEffect(() => {
     const refreshTodayIfDayChanged = () => {
@@ -636,24 +670,29 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       });
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
-      refreshTodayIfDayChanged();
+    const alignOnReturn = () => {
+      if (returnToTodayOnFocus) {
+        goToday();
+        return;
+      }
       restoreSelectedDayScroll();
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      alignOnReturn();
+    };
+
     const intervalId = window.setInterval(refreshTodayIfDayChanged, 60_000);
-    window.addEventListener("focus", refreshTodayIfDayChanged);
-    window.addEventListener("focus", restoreSelectedDayScroll);
+    window.addEventListener("focus", alignOnReturn);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", refreshTodayIfDayChanged);
-      window.removeEventListener("focus", restoreSelectedDayScroll);
+      window.removeEventListener("focus", alignOnReturn);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [goToday, selectedIndex, today]);
+  }, [goToday, returnToTodayOnFocus, selectedIndex, today]);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -1066,6 +1105,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         setSavedLists(createDefaultSavedLists());
         const storedWidth = readStoredListPanelWidth();
         setListPanelWidthPx(storedWidth ?? DEFAULT_LIST_PANEL_WIDTH_PX);
+        setReturnToTodayOnFocus(DEFAULT_RETURN_TO_TODAY_ON_FOCUS);
         setArchivedTasks([]);
         setDays((currentDays) =>
           currentDays.length === 0
@@ -1088,10 +1128,16 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         savedListsSyncReadyRef.current = true;
         setSavedLists(normalizeSavedLists(fetchedSavedLists));
         const persistedWidth = fetchedSettings?.listPanelWidthPx;
+        const persistedReturnToTodayOnFocus = fetchedSettings?.returnToTodayOnFocus;
         const nextWidth =
           typeof persistedWidth === "number" && Number.isFinite(persistedWidth)
             ? clampListPanelWidth(persistedWidth)
             : readStoredListPanelWidth();
+        setReturnToTodayOnFocus(
+          typeof persistedReturnToTodayOnFocus === "boolean"
+            ? persistedReturnToTodayOnFocus
+            : DEFAULT_RETURN_TO_TODAY_ON_FOCUS
+        );
         if (nextWidth !== null) {
           setListPanelWidthPx(nextWidth);
           if (typeof window !== "undefined") {
@@ -2925,6 +2971,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       darkMode={darkMode}
       settingsOpen={settingsOpen}
       settingsMenuPosition={settingsMenuPosition}
+      returnToTodayOnFocus={returnToTodayOnFocus}
+      toggleReturnToTodayOnFocusPreference={toggleReturnToTodayOnFocusPreference}
       saveListPanelWidthPreference={saveListPanelWidthPreference}
       resetListPanelSize={resetListPanelSize}
       closeSettingsMenu={closeSettingsMenu}

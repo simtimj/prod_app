@@ -63,6 +63,7 @@ export type SyncSavedListsRequest = {
 
 export type UserSettings = {
   listPanelWidthPx?: number;
+  returnToTodayOnFocus?: boolean;
 };
 
 export type SupabaseUserSettingsRow = {
