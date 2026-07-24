@@ -596,7 +596,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const goToday = useCallback(() => {
     const now = new Date();
     const todayDateKey = toDateKey(now);
-    pendingScrollToDateKeyRef.current = todayDateKey;
     ignoreScrollRef.current = false;
     preferredDateKeyRef.current = todayDateKey;
     if (typeof window !== "undefined") {
@@ -632,21 +631,39 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     }
 
     if (nextDays !== days) {
+      pendingScrollToDateKeyRef.current = todayDateKey;
       setDays(nextDays);
       setToday(now);
       return;
     }
 
     if (nextTodayIndex >= 0) {
+      pendingScrollToDateKeyRef.current = null;
+
+      const alignTodayWhenReady = () => {
+        let frameId = 0;
+        const align = () => {
+          if (!scrollRef.current || !dayRefs.current[nextTodayIndex]) {
+            frameId = requestAnimationFrame(align);
+            return;
+          }
+
+          scrollDayToStart(nextTodayIndex, false);
+        };
+
+        frameId = requestAnimationFrame(align);
+        return () => {
+          if (frameId) {
+            cancelAnimationFrame(frameId);
+          }
+        };
+      };
+
       if (selectedIndex !== nextTodayIndex) {
         setSelectedIndex(nextTodayIndex);
-      } else {
-        // When today is already selected, force realignment in case the scroll position was reset.
-        pendingScrollToDateKeyRef.current = null;
-        requestAnimationFrame(() => {
-          scrollDayToStart(nextTodayIndex, false);
-        });
       }
+
+      alignTodayWhenReady();
     }
 
     setToday(now);
@@ -1146,7 +1163,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         }
         setDays((currentDays) => {
           const baseDays = currentDays.length === 0 ? buildRollingDayColumns(new Date()) : currentDays;
-          return buildDayColumnsFromRows(baseDays, activeRows, today);
+          return buildDayColumnsFromRows(baseDays, activeRows, new Date());
         });
         setArchivedTasks(mapArchivedRowsToEntries(archivedRows));
         setBoardLoading(false);
@@ -1164,7 +1181,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         console.error(message);
       }
     },
-    [today]
+    []
   );
 
   useEffect(() => {
