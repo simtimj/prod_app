@@ -3,8 +3,20 @@ import { check, sleep } from 'k6';
 
 export const options = {
   vus: 100,
-  duration: '10s',
+  duration: '5s',
 };
+
+function randomHex(length) {
+  let result = '';
+  for (let index = 0; index < length; index += 1) {
+    result += Math.floor(Math.random() * 16).toString(16);
+  }
+  return result;
+}
+
+function uuidV4() {
+  return `${randomHex(8)}-${randomHex(4)}-4${randomHex(3)}-${((8 + Math.floor(Math.random() * 4)).toString(16))}${randomHex(3)}-${randomHex(12)}`;
+}
 
 export default function () {
   const token = (__ENV.ACCESS_TOKEN || '').trim(); // pass via: k6 run -e ACCESS_TOKEN=... performance-tests/create-task.js
@@ -19,7 +31,7 @@ export default function () {
   }
 
   const nowIso = new Date().toISOString();
-  const taskId = `k6-${__VU}-${__ITER}-${Date.now()}`;
+  const taskId = uuidV4();
 
   const payload = JSON.stringify({
     task: {

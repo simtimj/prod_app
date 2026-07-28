@@ -67,4 +67,6 @@ if [[ "${ACCESS_TOKEN}" != *.*.* ]]; then
   exit 1
 fi
 
+export ACCESS_TOKEN
+
 exec k6 run "${K6_TEST_FILE}" "$@"
