@@ -4366,7 +4366,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}
-            className={`kanban-scroll flex overflow-x-auto px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide h-screen transition-[padding-right] duration-300 ${viewsOpen ? "pr-[23rem]" : ""} ${
+            className={`kanban-scroll flex overflow-x-auto px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide min-h-screen transition-[padding-right] duration-300 ${viewsOpen ? "pr-[23rem]" : ""} ${
               dragging ? "cursor-grabbing" : "cursor-grab"
             }`}
             style={viewsOpen ? { paddingRight: `${openListPanelWidthPx}px` } : undefined}
