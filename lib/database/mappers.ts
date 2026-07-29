@@ -40,7 +40,9 @@ export const buildDayColumnsFromRows = (baseDays: DayColumn[], rows: SupabaseTas
   rows.forEach((row) => {
     if (row.archived) return;
 
-    const targetIndex = row.due_date ? dayIndexByDate.get(row.due_date) ?? fallbackIndex : fallbackIndex;
+    const createdDateKey = getDateKey(new Date(row.created_at));
+    const targetKey = row.due_date ?? createdDateKey;
+    const targetIndex = dayIndexByDate.get(targetKey) ?? fallbackIndex;
     nextDays[targetIndex].tasks.push(mapTaskRowToTask(row));
   });
 

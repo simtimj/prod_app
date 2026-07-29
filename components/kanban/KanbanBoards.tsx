@@ -1313,6 +1313,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     }
 
     const now = new Date().toISOString();
+    const dayDateKey = getDayDateKeyForColumn(index);
     insertTaskIntoDay({
       dayIndex: index,
       task: {
@@ -1320,6 +1321,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         userId: currentUserId ?? undefined,
         title: title.trim(),
         completed: false,
+        dueDate: dayDateKey,
         createdAt: now,
         updatedAt: now,
       },
@@ -1416,6 +1418,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const descriptionWithSource = smartTaskPreview.draft.description?.trim()
       ? `${smartTaskPreview.draft.description.trim()}\n\nOriginal input: ${smartTaskPreview.sourceText}`
       : `Original input: ${smartTaskPreview.sourceText}`;
+    const dayDateKey = getDayDateKeyForColumn(smartTaskPreview.dayIndex);
 
     insertTaskIntoDay({
       dayIndex: smartTaskPreview.dayIndex,
@@ -1426,7 +1429,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         completed: false,
         createdAt: now,
         updatedAt: now,
-        dueDate: smartTaskPreview.draft.dueDate?.trim() || undefined,
+        dueDate: smartTaskPreview.draft.dueDate?.trim() || dayDateKey,
         dueTime: smartTaskPreview.draft.dueTime?.trim() || undefined,
         description: descriptionWithSource,
       },

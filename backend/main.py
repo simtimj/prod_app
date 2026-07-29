@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 SERVICE_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = SERVICE_DIR.parent.parent
+WORKSPACE_ROOT = SERVICE_DIR.parent
 
 # Load env files so the service can access OPENAI_API_KEY from the project root.
 load_dotenv(SERVICE_DIR / ".env", override=False)
