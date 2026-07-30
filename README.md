@@ -70,6 +70,74 @@ If you only want the frontend (without auto-starting backend):
 npm run dev
 ```
 
+## Performance Testing (Seed + k6)
+
+The project includes a one-command workflow to seed mock board data and run a get-board load test.
+
+### What the seed creates
+
+- 10 users via Supabase Admin Auth API (no built-in email provider sends)
+- 5 custom lists per user
+- 100 tasks per user distributed across those custom lists
+
+Seeded user tokens are written to [performance/data/test-users.json](performance/data/test-users.json), which [performance/k6/get-board.js](performance/k6/get-board.js) uses for authenticated board GET requests.
+
+### Required environment variables
+
+Set these in .env.local:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+### Single command (recommended)
+
+Run from project root:
+
+```bash
+npm run perf:get-board
+```
+
+This command runs [performance/scripts/run-get-board.sh](performance/scripts/run-get-board.sh), which:
+
+1. Seeds users/lists/tasks using [performance/scripts/seed_test_data.py](performance/scripts/seed_test_data.py)
+2. Runs k6 with [performance/k6/get-board.js](performance/k6/get-board.js)
+3. Exports a k6 summary JSON file to [performance/results](performance/results)
+
+### Useful overrides
+
+You can override defaults inline:
+
+```bash
+SEED_USERS=10 \
+SEED_LISTS_PER_USER=5 \
+SEED_TASKS_PER_USER=100 \
+VUS=40 \
+DURATION=60s \
+BOARD_BASE_URL=http://localhost:8000 \
+npm run perf:get-board
+```
+
+Optional cleanup at the end of the same command:
+
+```bash
+CLEANUP_AFTER_RUN=1 npm run perf:get-board
+```
+
+Delete seeded auth users as well:
+
+```bash
+CLEANUP_AFTER_RUN=1 CLEANUP_DELETE_USERS=1 npm run perf:get-board
+```
+
+### Manual helper commands
+
+- Seed only: `npm run perf:seed`
+- Cleanup seeded data only: `npm run perf:cleanup`
+- Cleanup and delete seeded users: `python3 performance/scripts/cleanup_test_data.py --delete-users`
+
 ## Using Lists
 
 The app supports custom lists such as `Backlog`, `Weekend`, or any list you create from the `Lists` panel.
