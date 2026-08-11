@@ -4,7 +4,7 @@ export const RECURRENCE_WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fr
 
 export const lightColors: Record<string, string> = {
   Sunday: "#F4C430",
-  Monday: "#DCE3F2",
+  Monday: "#9CA3AF",
   Tuesday: "#C62828",
   Wednesday: "#2D9CDB",
   Thursday: "#2E8B57",
@@ -14,7 +14,7 @@ export const lightColors: Record<string, string> = {
 
 export const darkColors: Record<string, string> = {
   Sunday: "#6A5A12",
-  Monday: "#2A3142",
+  Monday: "#3F4754",
   Tuesday: "#421B1B",
   Wednesday: "#18384A",
   Thursday: "#1B3A2B",
