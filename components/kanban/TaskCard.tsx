@@ -52,6 +52,46 @@ export default function TaskCard({
 }: TaskCardProps) {
   const taskColor = task.tagColor;
 
+  const getRelativeDueStatus = () => {
+    const dueDate = task.dueDate?.trim();
+    if (!dueDate) return null;
+
+    const parsedDueDate = new Date(`${dueDate}T00:00:00`);
+    if (Number.isNaN(parsedDueDate.getTime())) return null;
+
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startOfDueDate = new Date(parsedDueDate.getFullYear(), parsedDueDate.getMonth(), parsedDueDate.getDate());
+    const diffMs = startOfDueDate.getTime() - startOfToday.getTime();
+    const diffDays = Math.round(diffMs / 86_400_000);
+
+    if (diffDays === 0) {
+      return {
+        label: "Due today",
+        className: darkMode
+          ? "border-amber-400/60 bg-amber-400/10 text-amber-200"
+          : "border-amber-300 bg-amber-50 text-amber-700",
+      };
+    }
+
+    if (diffDays < 0) {
+      const daysOverdue = Math.abs(diffDays);
+      return {
+        label: `${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue`,
+        className: darkMode
+          ? "border-rose-400/60 bg-rose-400/10 text-rose-200"
+          : "border-rose-300 bg-rose-50 text-rose-700",
+      };
+    }
+
+    return {
+      label: `Due in ${diffDays} day${diffDays === 1 ? "" : "s"}`,
+      className: darkMode
+        ? "border-sky-400/60 bg-sky-400/10 text-sky-200"
+        : "border-sky-300 bg-sky-50 text-sky-700",
+    };
+  };
+
   const renderDropIndicator = () => {
     if (isSearching || !showDropIndicator) return null;
     return <div className={`mb-1 h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />;
@@ -122,6 +162,19 @@ export default function TaskCard({
     );
   };
 
+  const renderDueStatusBadge = () => {
+    const status = getRelativeDueStatus();
+    if (!status) return null;
+
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold ${status.className}`}
+      >
+        {status.label}
+      </span>
+    );
+  };
+
   const renderTaskContent = () => (
     <div className="flex min-w-0 items-start gap-1.5">
       <label
@@ -159,6 +212,7 @@ export default function TaskCard({
 
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {renderDueBadge()}
+          {renderDueStatusBadge()}
           {renderRecurringBadge()}
           {renderTaskTag()}
         </div>
