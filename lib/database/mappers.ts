@@ -31,8 +31,56 @@ export const mapTaskRowToTask = (row: SupabaseTaskRow): Task => ({
   updatedAt: row.updated_at,
 });
 
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const addDays = (date: Date, amount: number) => {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + amount);
+  return copy;
+};
+
+const isDateKey = (value: string) => DATE_KEY_PATTERN.test(value);
+
+const toDateKeyFromTimestamp = (value: string) => {
+  const prefix = value.slice(0, 10);
+  if (isDateKey(prefix)) return prefix;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return getDateKey(parsed);
+};
+
+const ensureDayRangeIncludes = (baseDays: DayColumn[], requiredDateKeys: string[]) => {
+  if (baseDays.length === 0 || requiredDateKeys.length === 0) return baseDays;
+
+  let nextDays = [...baseDays];
+
+  const minRequiredKey = requiredDateKeys.reduce((min, value) => (value < min ? value : min), requiredDateKeys[0]);
+  const maxRequiredKey = requiredDateKeys.reduce((max, value) => (value > max ? value : max), requiredDateKeys[0]);
+
+  while (getDateKey(nextDays[0].date) > minRequiredKey) {
+    const firstDate = nextDays[0].date;
+    const date = addDays(firstDate, -1);
+    nextDays = [{ date, label: `${date.toLocaleDateString("en-US", { weekday: "long" })} · ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, tasks: [] }, ...nextDays];
+  }
+
+  while (getDateKey(nextDays[nextDays.length - 1].date) < maxRequiredKey) {
+    const lastDate = nextDays[nextDays.length - 1].date;
+    const date = addDays(lastDate, 1);
+    nextDays = [...nextDays, { date, label: `${date.toLocaleDateString("en-US", { weekday: "long" })} · ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, tasks: [] }];
+  }
+
+  return nextDays;
+};
+
 export const buildDayColumnsFromRows = (baseDays: DayColumn[], rows: SupabaseTaskRow[], fallbackDate: Date) => {
-  const nextDays = baseDays.map((day) => ({ ...day, tasks: [] as Task[] }));
+  const targetDateKeys = rows
+    .filter((row) => !row.archived)
+    .map((row) => row.due_date ?? toDateKeyFromTimestamp(row.created_at))
+    .filter((value): value is string => Boolean(value && isDateKey(value)));
+
+  const rangedDays = ensureDayRangeIncludes(baseDays, targetDateKeys);
+  const nextDays = rangedDays.map((day) => ({ ...day, tasks: [] as Task[] }));
   const dayIndexByDate = new Map(nextDays.map((day, index) => [getDateKey(day.date), index]));
   const fallbackDateKey = getDateKey(fallbackDate);
   const fallbackIndex = dayIndexByDate.get(fallbackDateKey) ?? Math.floor(nextDays.length / 2);
@@ -40,7 +88,7 @@ export const buildDayColumnsFromRows = (baseDays: DayColumn[], rows: SupabaseTas
   rows.forEach((row) => {
     if (row.archived) return;
 
-    const createdDateKey = getDateKey(new Date(row.created_at));
+    const createdDateKey = toDateKeyFromTimestamp(row.created_at);
     const targetKey = row.due_date ?? createdDateKey;
     const targetIndex = dayIndexByDate.get(targetKey) ?? fallbackIndex;
     nextDays[targetIndex].tasks.push(mapTaskRowToTask(row));
