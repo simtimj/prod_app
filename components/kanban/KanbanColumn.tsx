@@ -233,6 +233,11 @@ export default function KanbanColumn({
   const renderDropZone = () => {
     if (isSearching) return null;
 
+    const openAddTask = () => {
+      setActiveAddIndex(index);
+      setNewTaskInput("");
+    };
+
     return (
       <div
         onDragOver={(event) => onHandleListDragOver(index, day.tasks.length, event)}
@@ -242,9 +247,76 @@ export default function KanbanColumn({
         {dropTarget?.dayIndex === index && dropTarget.insertIndex === day.tasks.length ? (
           <div className={`h-1 rounded-full ${darkMode ? "bg-slate-300/45" : "bg-slate-500/35"}`} />
         ) : day.tasks.length === 0 ? (
-          <div className={`rounded-lg border border-dashed px-3 py-2 text-xs ${darkMode ? "border-slate-600 text-slate-400" : "border-slate-300 text-slate-500"}`}>
-            Drag a task here
-          </div>
+          activeAddIndex === index ? (
+            <div className="space-y-2">
+              <textarea
+                ref={addInputRef}
+                value={newTaskInput}
+                onChange={(event) => setNewTaskInput(event.target.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    onAddTaskToList(index, newTaskInput);
+                  }
+                  if (event.key === "Escape") {
+                    setNewTaskInput("");
+                    setActiveAddIndex(null);
+                  }
+                }}
+                onBlur={(event) => {
+                  const nextFocused = event.relatedTarget as Node | null;
+                  if (nextFocused && event.currentTarget.parentElement?.contains(nextFocused)) {
+                    return;
+                  }
+                  setNewTaskInput("");
+                  setActiveAddIndex(null);
+                }}
+                rows={3}
+                placeholder="New task... (Enter to save, Shift+Enter for newline)"
+                className={`w-full resize-y rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 transition ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 focus:border-slate-500 focus:ring-slate-700" : "border-slate-200 bg-white text-slate-900 focus:border-slate-900 focus:ring-slate-200"}`}
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAddTaskToList(index, newTaskInput);
+                  }}
+                  className="rounded-full border px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-widest transition hover:brightness-90"
+                  style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void onParseTaskInput(index, newTaskInput);
+                  }}
+                  disabled={smartTaskLoading}
+                  className="rounded-full border px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-widest transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-70"
+                  style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.12), borderColor: dayColor, color: "#000" } : undefined}
+                >
+                  {smartTaskLoading ? "Parsing..." : "Parse"}
+                </button>
+              </div>
+              {smartTaskError ? (
+                <p className={`text-xs ${darkMode ? "text-red-300" : "text-red-600"}`}>{smartTaskError}</p>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openAddTask();
+              }}
+              className={`w-full rounded-lg border border-dashed px-3 py-2 text-left text-xs transition ${darkMode ? "border-slate-600 text-slate-400 hover:bg-slate-800/40" : "border-slate-300 text-slate-500 hover:bg-slate-100"}`}
+            >
+              Drag a task here or click to add task
+            </button>
+          )
         ) : null}
       </div>
     );
@@ -546,6 +618,7 @@ export default function KanbanColumn({
 
   const renderAddTaskInput = () => {
     if (activeAddIndex !== index) return null;
+    if (day.tasks.length === 0) return null;
 
     return (
       <div className="mt-2 space-y-2">
@@ -636,7 +709,7 @@ export default function KanbanColumn({
       } ${index === 0 ? "mr-2" : "mx-2"} ${index === totalDays - 1 ? "ml-2" : ""}`}
       style={applyColor ? { borderColor: dayColor, backgroundColor: isSelected ? hexToRgba(dayColor, 0.08) : undefined } : undefined}
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <div>
           <div className={todayDateClasses} style={todayDateStyle}>
             <p className={`text-[0.55rem] font-semibold uppercase tracking-[0.22em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
@@ -646,20 +719,6 @@ export default function KanbanColumn({
               {formatMonthDay(day.date)}
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setActiveAddIndex(index);
-              setNewTaskInput("");
-            }}
-            className="rounded-full border px-2.5 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.12em] transition hover:brightness-90"
-            style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.18), borderColor: dayColor, color: "#000" } : undefined}
-          >
-            + Add task
-          </button>
         </div>
       </div>
 
