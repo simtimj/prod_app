@@ -34,4 +34,5 @@ check_status GET /health 200
 check_status GET /tasks 401
 check_status POST /tasks/upsert 422 '{}'
 check_status POST /parse-task 422 '{}'
+check_status POST /parse-task/mock 422 '{}'
 echo "All smoke checks passed"

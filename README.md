@@ -138,6 +138,45 @@ CLEANUP_AFTER_RUN=1 CLEANUP_DELETE_USERS=1 npm run perf:get-board
 - Cleanup seeded data only: `npm run perf:cleanup`
 - Cleanup and delete seeded users: `python3 performance/scripts/cleanup_test_data.py --delete-users`
 
+## Performance Testing (AI Parse)
+
+The parse AI load test is designed to stress your parsing pipeline with randomized prompts from [performance/data/ai-prompts.json](performance/data/ai-prompts.json) while defaulting to the mock backend route so you do not spend OpenAI tokens during load runs.
+
+### Recommended default
+
+Run the mock route locally:
+
+```bash
+npm run perf:parse-ai
+```
+
+This runs [performance/scripts/run-parse-ai.sh](performance/scripts/run-parse-ai.sh), which:
+
+1. Targets [performance/k6/parse-ai.js](performance/k6/parse-ai.js)
+2. Defaults to `http://127.0.0.1:3000/api/parse-task/mock`
+3. Exports a k6 summary JSON file to [performance/results](performance/results)
+
+### Useful overrides
+
+```bash
+PARSE_AI_BASE_URL=http://localhost:8000 \
+PARSE_AI_PATH=/parse-task/mock \
+VUS=40 \
+DURATION=60s \
+SLEEP_SECONDS=0.05 \
+npm run perf:parse-ai
+```
+
+### Real parse mode
+
+If you want a small, controlled sample against the actual OpenAI-backed parser, point the test at `/parse-task` instead of the mock route and keep the base URL pointed at the FastAPI service:
+
+```bash
+PARSE_AI_BASE_URL=http://localhost:8000 PARSE_AI_PATH=/parse-task npm run perf:parse-ai
+```
+
+Use this mode sparingly. It validates the live model behavior, but it is not the right choice for high-volume stress runs.
+
 ## Using Lists
 
 The app supports custom lists such as `Backlog`, `Weekend`, or any list you create from the `Lists` panel.

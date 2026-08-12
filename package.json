@@ -10,6 +10,7 @@
     "dev:status": "bash ./scripts/dev-status.sh",
     "perf:seed": "python3 ./performance/scripts/seed_test_data.py",
     "perf:get-board": "bash ./performance/scripts/run-get-board.sh",
+    "perf:parse-ai": "bash ./performance/scripts/run-parse-ai.sh",
     "perf:cleanup": "python3 ./performance/scripts/cleanup_test_data.py",
     "build": "next build",
     "start": "next start",

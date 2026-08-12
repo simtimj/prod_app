@@ -4,7 +4,7 @@ import os
 import re
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import uuid4
@@ -31,7 +31,9 @@ if not logger.handlers:
 
 MODEL_NAME = os.getenv("OPENAI_PARSE_TASK_MODEL", "gpt-4.1-mini")
 PARSE_MIN_INTERVAL_MS = 1800
+PARSE_MOCK_MIN_INTERVAL_MS = int(os.getenv("PARSE_MOCK_MIN_INTERVAL_MS", "0"))
 _recent_parse_by_client: dict[str, float] = {}
+_recent_mock_parse_by_client: dict[str, float] = {}
 
 parse_task_system_prompt = """You convert natural language task requests into a strict JSON object.
 
@@ -775,6 +777,165 @@ def get_client_key(x_forwarded_for: Optional[str], x_real_ip: Optional[str]) -> 
     return forwarded or real_ip or "unknown"
 
 
+def enforce_parse_interval(
+    client_key: str,
+    recent_by_client: dict[str, float],
+    min_interval_ms: int,
+) -> None:
+    if min_interval_ms <= 0:
+        recent_by_client[client_key] = time.time() * 1000
+        return
+
+    now_ms = time.time() * 1000
+    previous_ms = recent_by_client.get(client_key, 0)
+    elapsed_ms = now_ms - previous_ms
+    if elapsed_ms < min_interval_ms:
+        retry_after_seconds = max(1, int((min_interval_ms - elapsed_ms + 999) // 1000))
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": f"Rate limited. Please wait {retry_after_seconds}s and try again.",
+                "retryAfterSeconds": retry_after_seconds,
+            },
+        )
+
+    recent_by_client[client_key] = now_ms
+
+
+def clean_mock_title(text: str) -> str:
+    candidate = re.split(r"[.!?\n\r]+", text.strip(), maxsplit=1)[0].strip()
+    candidate = re.sub(
+        r"^(please\s+|kindly\s+|could you\s+|can you\s+|please\s+can you\s+)",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\b(today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+\w+|on\s+\w+day|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}:\d{2})\b.*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(r"[,:;\-]+$", "", candidate).strip()
+    candidate = re.sub(r"\s+", " ", candidate)
+    if not candidate:
+        return "Untitled task"
+    return candidate[:1].upper() + candidate[1:]
+
+
+def parse_time_from_text(text: str) -> Optional[str]:
+    time_match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", text, flags=re.IGNORECASE)
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2) or "0")
+        meridiem = time_match.group(3).lower()
+        if hour == 12:
+            hour = 0
+        if meridiem == "pm":
+            hour += 12
+        return f"{hour:02d}:{minute:02d}"
+
+    twenty_four_hour_match = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", text)
+    if twenty_four_hour_match:
+        return f"{int(twenty_four_hour_match.group(1)):02d}:{int(twenty_four_hour_match.group(2)):02d}"
+
+    return None
+
+
+def resolve_relative_date(text: str, grounded_reference_date: str) -> Optional[str]:
+    reference = datetime.strptime(grounded_reference_date, "%Y-%m-%d")
+    lowered = text.lower()
+
+    if "today" in lowered:
+        return reference.strftime("%Y-%m-%d")
+    if "tomorrow" in lowered:
+        return (reference + timedelta(days=1)).strftime("%Y-%m-%d")
+    if "yesterday" in lowered:
+        return (reference - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    weekdays = {
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
+    }
+
+    for weekday_name, weekday_index in weekdays.items():
+        if re.search(rf"\b(?:next\s+|this\s+)?{weekday_name}\b", lowered):
+            delta = (weekday_index - reference.weekday()) % 7
+            if "next" in lowered:
+                delta = delta or 7
+            elif "this" in lowered and delta == 0:
+                delta = 0
+            elif delta == 0:
+                delta = 7
+            return (reference + timedelta(days=delta)).strftime("%Y-%m-%d")
+
+    month_day_match = re.search(
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:,\s*(\d{4}))?\b",
+        lowered,
+    )
+    if month_day_match:
+        month_name = month_day_match.group(1)
+        day = int(month_day_match.group(2))
+        year = int(month_day_match.group(3) or reference.year)
+        month_number = {
+            "january": 1,
+            "february": 2,
+            "march": 3,
+            "april": 4,
+            "may": 5,
+            "june": 6,
+            "july": 7,
+            "august": 8,
+            "september": 9,
+            "october": 10,
+            "november": 11,
+            "december": 12,
+        }[month_name]
+        candidate = datetime(year, month_number, day)
+        if candidate < reference and not month_day_match.group(3):
+            candidate = datetime(year + 1, month_number, day)
+        return candidate.strftime("%Y-%m-%d")
+
+    month_day_simple = re.search(r"\b(?:on\s+)?(\d{1,2})/(\d{1,2})(?:/(\d{4}))?\b", lowered)
+    if month_day_simple:
+        month = int(month_day_simple.group(1))
+        day = int(month_day_simple.group(2))
+        year = int(month_day_simple.group(3) or reference.year)
+        candidate = datetime(year, month, day)
+        if candidate < reference and not month_day_simple.group(3):
+            candidate = datetime(year + 1, month, day)
+        return candidate.strftime("%Y-%m-%d")
+
+    return None
+
+
+def build_mock_parse_result(text: str, grounded_reference_date: str, timezone_name: str) -> ParseTaskResponse:
+    normalized_text = text.strip()
+    due_time = parse_time_from_text(normalized_text)
+    due_date = resolve_relative_date(normalized_text, grounded_reference_date)
+    title = clean_mock_title(normalized_text)
+
+    description_parts = [normalized_text, f"Reference date: {grounded_reference_date}", f"Timezone: {timezone_name}"]
+    if due_date:
+        description_parts.append(f"Resolved date: {due_date}")
+    if due_time:
+        description_parts.append(f"Resolved time: {due_time}")
+
+    return ParseTaskResponse(
+        draft=ParsedTaskDraft(
+            title=title,
+            dueDate=due_date,
+            dueTime=due_time,
+            description="\n".join(description_parts),
+        )
+    )
+
+
 @app.post("/parse-task", response_model=ParseTaskResponse)
 def parse_task(
     body: ParseTaskRequest,
@@ -791,20 +952,8 @@ def parse_task(
     if len(text) > 400:
         raise HTTPException(status_code=400, detail="Task text is too long (max 400 chars).")
 
-    now_ms = time.time() * 1000
     client_key = get_client_key(x_forwarded_for, x_real_ip)
-    previous_ms = _recent_parse_by_client.get(client_key, 0)
-    elapsed_ms = now_ms - previous_ms
-    if elapsed_ms < PARSE_MIN_INTERVAL_MS:
-        retry_after_seconds = max(1, int((PARSE_MIN_INTERVAL_MS - elapsed_ms + 999) // 1000))
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "error": f"Rate limited. Please wait {retry_after_seconds}s and try again.",
-                "retryAfterSeconds": retry_after_seconds,
-            },
-        )
-    _recent_parse_by_client[client_key] = now_ms
+    enforce_parse_interval(client_key, _recent_parse_by_client, PARSE_MIN_INTERVAL_MS)
 
     if reference_date and not is_real_calendar_date(reference_date):
         raise HTTPException(status_code=400, detail="currentDate must be a real YYYY-MM-DD date.")
@@ -871,6 +1020,32 @@ def parse_task(
 
         message = str(exc) or "OpenAI parse request failed."
         raise HTTPException(status_code=500, detail=message) from exc
+
+
+@app.post("/parse-task/mock", response_model=ParseTaskResponse)
+def parse_task_mock(
+    body: ParseTaskRequest,
+    x_forwarded_for: Optional[str] = Header(default=None),
+    x_real_ip: Optional[str] = Header(default=None),
+) -> ParseTaskResponse:
+    text = body.text.strip()
+    timezone_name = (body.timezone or "UTC").strip() or "UTC"
+    reference_date = (body.currentDate or "").strip()
+
+    if not text:
+        raise HTTPException(status_code=400, detail="Task text is required.")
+
+    if len(text) > 400:
+        raise HTTPException(status_code=400, detail="Task text is too long (max 400 chars).")
+
+    client_key = get_client_key(x_forwarded_for, x_real_ip)
+    enforce_parse_interval(client_key, _recent_mock_parse_by_client, PARSE_MOCK_MIN_INTERVAL_MS)
+
+    if reference_date and not is_real_calendar_date(reference_date):
+        raise HTTPException(status_code=400, detail="currentDate must be a real YYYY-MM-DD date.")
+
+    grounded_reference_date = reference_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return build_mock_parse_result(text, grounded_reference_date, timezone_name)
 
 
 @app.exception_handler(HTTPException)

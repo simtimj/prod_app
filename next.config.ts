@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
         destination: `${fastApiBaseUrl}/parse-task`,
       },
       {
+        source: "/api/parse-task/mock",
+        destination: `${fastApiBaseUrl}/parse-task/mock`,
+      },
+      {
         source: "/api/tasks",
         destination: `${fastApiBaseUrl}/tasks`,
       },
