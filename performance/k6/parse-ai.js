@@ -1,6 +1,7 @@
 import http from 'k6/http';
-import { check, sleep, fail, Rate, Counter, Trend } from 'k6';
+import { check, sleep, fail } from 'k6';
 import { SharedArray } from 'k6/data';
+import { Rate, Counter, Trend } from 'k6/metrics';
 
 const prompts = new SharedArray('ai-prompts', () => {
   const raw = open('../data/ai-prompts.json');
