@@ -1,5 +1,5 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 import { SharedArray } from 'k6/data';
 
 const users = new SharedArray('seeded-users', () => {
@@ -14,10 +14,26 @@ const users = new SharedArray('seeded-users', () => {
 });
 
 const baseUrl = (__ENV.BOARD_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+const targetRps = Number(__ENV.TARGET_RPS || __ENV.BOARD_TARGET_RPS || '20');
+const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.BOARD_PREALLOCATED_VUS || '200');
+const maxVus = Number(__ENV.MAX_VUS || __ENV.BOARD_MAX_VUS || '2000');
+const duration = __ENV.DURATION || '30s';
 
 export const options = {
-  vus: Number(__ENV.VUS || 20),
-  duration: __ENV.DURATION || '30s',
+  scenarios: {
+    get_board_rps: {
+      executor: 'constant-arrival-rate',
+      rate: targetRps,
+      timeUnit: '1s',
+      duration,
+      preAllocatedVUs: preAllocatedVus,
+      maxVUs: maxVus,
+    },
+  },
+  thresholds: {
+    checks: ['rate>0.95'],
+    http_req_failed: ['rate<0.02'],
+  },
 };
 
 function pickUser() {
@@ -81,5 +97,4 @@ export default function getBoardScenario() {
     },
   });
 
-  sleep(Number(__ENV.SLEEP_SECONDS || 1));
 }

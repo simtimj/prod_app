@@ -18,6 +18,11 @@ if ! command -v k6 >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required but was not found in PATH."
+  exit 1
+fi
+
 SEED_USERS="${SEED_USERS:-10}"
 SEED_LISTS_PER_USER="${SEED_LISTS_PER_USER:-5}"
 SEED_TASKS_PER_USER="${SEED_TASKS_PER_USER:-100}"
@@ -26,9 +31,23 @@ SEED_EMAIL_DOMAIN="${SEED_EMAIL_DOMAIN:-example.com}"
 SEED_PASSWORD="${SEED_PASSWORD:-PerfUser!12345}"
 
 BOARD_BASE_URL="${BOARD_BASE_URL:-http://localhost:8000}"
-VUS="${VUS:-20}"
+TARGET_RPS="${TARGET_RPS:-20}"
+PREALLOCATED_VUS="${PREALLOCATED_VUS:-200}"
+MAX_VUS="${MAX_VUS:-2000}"
 DURATION="${DURATION:-30s}"
-SLEEP_SECONDS="${SLEEP_SECONDS:-1}"
+
+preflight_http_code="$(curl -sS -o /dev/null -w "%{http_code}" \
+  --connect-timeout 3 \
+  --max-time 10 \
+  "${BOARD_BASE_URL%/}/tasks" || true)"
+
+if [[ "${preflight_http_code}" == "000" ]]; then
+  echo "Preflight failed: could not connect to ${BOARD_BASE_URL%/}/tasks"
+  echo "Start backend (npm run dev:api) or set BOARD_BASE_URL to a reachable service."
+  exit 1
+fi
+
+echo "Preflight connectivity check passed (HTTP ${preflight_http_code})"
 
 mkdir -p "${RESULTS_DIR}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
@@ -46,9 +65,10 @@ python3 "${SEED_SCRIPT}" \
 echo "Running k6 get-board test..."
 k6 run \
   -e BOARD_BASE_URL="${BOARD_BASE_URL}" \
-  -e VUS="${VUS}" \
+  -e TARGET_RPS="${TARGET_RPS}" \
+  -e PREALLOCATED_VUS="${PREALLOCATED_VUS}" \
+  -e MAX_VUS="${MAX_VUS}" \
   -e DURATION="${DURATION}" \
-  -e SLEEP_SECONDS="${SLEEP_SECONDS}" \
   --summary-export "${SUMMARY_FILE}" \
   "${K6_SCRIPT}" "$@"
 

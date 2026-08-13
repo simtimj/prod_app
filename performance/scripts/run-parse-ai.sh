@@ -11,11 +11,32 @@ if ! command -v k6 >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required but was not found in PATH."
+  exit 1
+fi
+
 PARSE_AI_BASE_URL="${PARSE_AI_BASE_URL:-http://127.0.0.1:3000}"
 PARSE_AI_PATH="${PARSE_AI_PATH:-/api/parse-task/mock}"
-VUS="${VUS:-20}"
+TARGET_RPS="${TARGET_RPS:-40}"
+PREALLOCATED_VUS="${PREALLOCATED_VUS:-200}"
+MAX_VUS="${MAX_VUS:-2000}"
 DURATION="${DURATION:-30s}"
-SLEEP_SECONDS="${SLEEP_SECONDS:-0.1}"
+
+preflight_http_code="$(curl -sS -o /dev/null -w "%{http_code}" \
+  --connect-timeout 3 \
+  --max-time 10 \
+  -X POST "${PARSE_AI_BASE_URL%/}${PARSE_AI_PATH}" \
+  -H "Content-Type: application/json" \
+  -d '{}' || true)"
+
+if [[ "${preflight_http_code}" == "000" ]]; then
+  echo "Preflight failed: could not connect to ${PARSE_AI_BASE_URL%/}${PARSE_AI_PATH}"
+  echo "Start frontend/backend (npm run dev:up) or set PARSE_AI_BASE_URL/PARSE_AI_PATH to a reachable service."
+  exit 1
+fi
+
+echo "Preflight connectivity check passed (HTTP ${preflight_http_code})"
 
 mkdir -p "${RESULTS_DIR}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
@@ -26,9 +47,10 @@ echo "Running parse AI load test against ${PARSE_AI_BASE_URL}${PARSE_AI_PATH}"
 k6 run \
   -e PARSE_AI_BASE_URL="${PARSE_AI_BASE_URL}" \
   -e PARSE_AI_PATH="${PARSE_AI_PATH}" \
-  -e VUS="${VUS}" \
+  -e TARGET_RPS="${TARGET_RPS}" \
+  -e PREALLOCATED_VUS="${PREALLOCATED_VUS}" \
+  -e MAX_VUS="${MAX_VUS}" \
   -e DURATION="${DURATION}" \
-  -e SLEEP_SECONDS="${SLEEP_SECONDS}" \
   --summary-export "${SUMMARY_FILE}" \
   "${K6_SCRIPT}" "$@"
 

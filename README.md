@@ -114,10 +114,18 @@ You can override defaults inline:
 SEED_USERS=10 \
 SEED_LISTS_PER_USER=5 \
 SEED_TASKS_PER_USER=100 \
-VUS=40 \
+TARGET_RPS=150 \
+PREALLOCATED_VUS=300 \
+MAX_VUS=2000 \
 DURATION=60s \
 BOARD_BASE_URL=http://localhost:8000 \
 npm run perf:get-board
+```
+
+Run a 1000 RPS profile:
+
+```bash
+npm run perf:get-board:1k
 ```
 
 Optional cleanup at the end of the same command:
@@ -135,6 +143,8 @@ CLEANUP_AFTER_RUN=1 CLEANUP_DELETE_USERS=1 npm run perf:get-board
 ### Manual helper commands
 
 - Seed only: `npm run perf:seed`
+- Create-task load test: `npm run perf:create-task`
+- Create-task 1000 RPS profile: `npm run perf:create-task:1k`
 - Cleanup seeded data only: `npm run perf:cleanup`
 - Cleanup and delete seeded users: `python3 performance/scripts/cleanup_test_data.py --delete-users`
 
@@ -161,10 +171,17 @@ This runs [performance/scripts/run-parse-ai.sh](performance/scripts/run-parse-ai
 ```bash
 PARSE_AI_BASE_URL=http://localhost:8000 \
 PARSE_AI_PATH=/parse-task/mock \
-VUS=40 \
+TARGET_RPS=200 \
+PREALLOCATED_VUS=300 \
+MAX_VUS=2000 \
 DURATION=60s \
-SLEEP_SECONDS=0.05 \
 npm run perf:parse-ai
+```
+
+Run a 1000 RPS profile:
+
+```bash
+npm run perf:parse-ai:1k
 ```
 
 ### Real parse mode
@@ -176,6 +193,14 @@ PARSE_AI_BASE_URL=http://localhost:8000 PARSE_AI_PATH=/parse-task npm run perf:p
 ```
 
 Use this mode sparingly. It validates the live model behavior, but it is not the right choice for high-volume stress runs.
+
+## RPS Notes For Local vs Fargate
+
+All three k6 scenarios now use constant-arrival-rate executors, so `TARGET_RPS` is the desired request rate and k6 scales VUs up to `MAX_VUS` to maintain it.
+
+- Local quick testing: start with lower values (for example `TARGET_RPS=50` to `200`).
+- High load profile: use the `:1k` scripts.
+- Fargate deployment: tune CPU/memory and task count first, then increase `TARGET_RPS`, `PREALLOCATED_VUS`, and `MAX_VUS` until you hit stable p95 latency and acceptable error rate.
 
 ## Using Lists
 

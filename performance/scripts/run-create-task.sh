@@ -2,9 +2,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.local"
-K6_TEST_FILE="${SCRIPT_DIR}/create-task.js"
+K6_SCRIPT="${REPO_ROOT}/performance/k6/create-task.js"
+RESULTS_DIR="${REPO_ROOT}/performance/results"
+
+if ! command -v k6 >/dev/null 2>&1; then
+  echo "k6 is required but was not found in PATH."
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required but was not found in PATH."
+  exit 1
+fi
 
 if [[ -f "${ENV_FILE}" ]]; then
   set -a
@@ -69,4 +80,40 @@ fi
 
 export ACCESS_TOKEN
 
-exec k6 run "${K6_TEST_FILE}" "$@"
+CREATE_TASK_BASE_URL="${CREATE_TASK_BASE_URL:-http://127.0.0.1:8000}"
+TARGET_RPS="${TARGET_RPS:-50}"
+PREALLOCATED_VUS="${PREALLOCATED_VUS:-200}"
+MAX_VUS="${MAX_VUS:-2000}"
+DURATION="${DURATION:-30s}"
+
+preflight_http_code="$(curl -sS -o /dev/null -w "%{http_code}" \
+  --connect-timeout 3 \
+  --max-time 10 \
+  -X POST "${CREATE_TASK_BASE_URL%/}/tasks/upsert" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -d '{}' || true)"
+
+if [[ "${preflight_http_code}" == "000" ]]; then
+  echo "Preflight failed: could not connect to ${CREATE_TASK_BASE_URL%/}/tasks/upsert"
+  echo "Start backend (npm run dev:api) or set CREATE_TASK_BASE_URL to a reachable service."
+  exit 1
+fi
+
+echo "Preflight connectivity check passed (HTTP ${preflight_http_code})"
+
+mkdir -p "${RESULTS_DIR}"
+TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+SUMMARY_FILE="${RESULTS_DIR}/create-task-summary-${TIMESTAMP}.json"
+
+echo "Running create-task load test against ${CREATE_TASK_BASE_URL}"
+
+exec k6 run \
+  -e ACCESS_TOKEN="${ACCESS_TOKEN}" \
+  -e CREATE_TASK_BASE_URL="${CREATE_TASK_BASE_URL}" \
+  -e TARGET_RPS="${TARGET_RPS}" \
+  -e PREALLOCATED_VUS="${PREALLOCATED_VUS}" \
+  -e MAX_VUS="${MAX_VUS}" \
+  -e DURATION="${DURATION}" \
+  --summary-export "${SUMMARY_FILE}" \
+  "${K6_SCRIPT}" "$@"

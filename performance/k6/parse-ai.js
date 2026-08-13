@@ -1,5 +1,5 @@
 import http from 'k6/http';
-import { check, sleep, fail } from 'k6';
+import { check, fail } from 'k6';
 import { SharedArray } from 'k6/data';
 import { Rate, Counter, Trend } from 'k6/metrics';
 
@@ -17,7 +17,10 @@ const prompts = new SharedArray('ai-prompts', () => {
 const baseUrl = (__ENV.PARSE_AI_BASE_URL || __ENV.FASTAPI_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const parsePath = (__ENV.PARSE_AI_PATH || '/api/parse-task/mock').trim() || '/api/parse-task/mock';
 const parseUrl = `${baseUrl}${parsePath.startsWith('/') ? parsePath : `/${parsePath}`}`;
-const sleepSeconds = Number(__ENV.SLEEP_SECONDS || '0.1');
+const targetRps = Number(__ENV.TARGET_RPS || __ENV.PARSE_AI_TARGET_RPS || '40');
+const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.PARSE_AI_PREALLOCATED_VUS || '200');
+const maxVus = Number(__ENV.MAX_VUS || __ENV.PARSE_AI_MAX_VUS || '2000');
+const duration = __ENV.DURATION || '30s';
 
 const parseSuccess = new Rate('parse_success');
 const parseHasDraftTitle = new Rate('parse_has_draft_title');
@@ -27,11 +30,20 @@ const parseStatus5xx = new Counter('parse_status_5xx');
 const parseDuration = new Trend('parse_duration_ms');
 
 export const options = {
-  vus: Number(__ENV.VUS || '20'),
-  duration: __ENV.DURATION || '30s',
+  scenarios: {
+    parse_ai_rps: {
+      executor: 'constant-arrival-rate',
+      rate: targetRps,
+      timeUnit: '1s',
+      duration,
+      preAllocatedVUs: preAllocatedVus,
+      maxVUs: maxVus,
+    },
+  },
   thresholds: {
     parse_success: ['rate>0.95'],
     parse_has_draft_title: ['rate>0.95'],
+    http_req_failed: ['rate<0.02'],
   },
 };
 
@@ -103,7 +115,6 @@ function parseAiScenario() {
     fail(`parse-ai request failed: status=${response.status} body=${response.body}`);
   }
 
-  sleep(sleepSeconds);
 }
 
 export default parseAiScenario;

@@ -1,9 +1,27 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
+
+const targetRps = Number(__ENV.TARGET_RPS || __ENV.CREATE_TASK_TARGET_RPS || '50');
+const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.CREATE_TASK_PREALLOCATED_VUS || '200');
+const maxVus = Number(__ENV.MAX_VUS || __ENV.CREATE_TASK_MAX_VUS || '2000');
+const duration = __ENV.DURATION || '30s';
+const baseUrl = (__ENV.CREATE_TASK_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
 export const options = {
-  vus: 100,
-  duration: '5s',
+  scenarios: {
+    create_task_rps: {
+      executor: 'constant-arrival-rate',
+      rate: targetRps,
+      timeUnit: '1s',
+      duration,
+      preAllocatedVUs: preAllocatedVus,
+      maxVUs: maxVus,
+    },
+  },
+  thresholds: {
+    checks: ['rate>0.95'],
+    http_req_failed: ['rate<0.02'],
+  },
 };
 
 function randomHex(length) {
@@ -18,7 +36,7 @@ function uuidV4() {
   return `${randomHex(8)}-${randomHex(4)}-4${randomHex(3)}-${((8 + Math.floor(Math.random() * 4)).toString(16))}${randomHex(3)}-${randomHex(12)}`;
 }
 
-export default function () {
+function createTaskScenario() {
   const token = (__ENV.ACCESS_TOKEN || '').trim(); // pass via: k6 run -e ACCESS_TOKEN=... performance-tests/create-task.js
 
   if (!token) {
@@ -56,7 +74,7 @@ export default function () {
     },
   };
 
-  const response = http.post('http://localhost:8000/tasks/upsert', payload, params);
+  const response = http.post(`${baseUrl}/tasks/upsert`, payload, params);
 
   if (response.status !== 200) {
     console.error(`create-task failed: status=${response.status} body=${response.body}`);
@@ -73,5 +91,6 @@ export default function () {
     },
   });
 
-  sleep(1);
 }
+
+export default createTaskScenario;
