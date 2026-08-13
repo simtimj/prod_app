@@ -1,0 +1,49 @@
+{
+    "metrics": {
+        "dropped_iterations": {
+            "count": 3,
+            "rate": 0.08570578370054262
+        },
+        "data_sent": {
+            "count": 31993,
+            "rate": 913.9950459771533
+        },
+        "data_received": {
+            "rate": 0,
+            "count": 0
+        },
+        "checks": {
+            "passes": 0,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.95": false
+            },
+            "value": 0
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 0,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "vus": {
+            "value": 23,
+            "min": 5,
+            "max": 23
+        },
+        "vus_max": {
+            "value": 23,
+            "min": 20,
+            "max": 23
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {}
+    }
+}

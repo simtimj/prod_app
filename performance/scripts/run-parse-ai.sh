@@ -23,6 +23,14 @@ PREALLOCATED_VUS="${PREALLOCATED_VUS:-200}"
 MAX_VUS="${MAX_VUS:-2000}"
 DURATION="${DURATION:-30s}"
 
+if [[ "${PARSE_AI_PATH}" == "/parse-task" ]]; then
+  if (( TARGET_RPS > 50 )) && [[ "${ALLOW_REAL_PARSE_HIGH_RPS:-0}" != "1" ]]; then
+    echo "Refusing high-RPS run against /parse-task (OpenAI-backed) with TARGET_RPS=${TARGET_RPS}."
+    echo "Use /parse-task/mock for high-throughput tests, or set ALLOW_REAL_PARSE_HIGH_RPS=1 to override intentionally."
+    exit 1
+  fi
+fi
+
 preflight_http_code="$(curl -sS -o /dev/null -w "%{http_code}" \
   --connect-timeout 3 \
   --max-time 10 \

@@ -100,6 +100,8 @@ Run from project root:
 npm run perf:get-board
 ```
 
+Note: for get-board, `TARGET_RPS` is interpreted as total API-layer requests/sec across three endpoints (`/tasks`, `/lists`, `/settings`).
+
 This command runs [performance/scripts/run-get-board.sh](performance/scripts/run-get-board.sh), which:
 
 1. Seeds users/lists/tasks using [performance/scripts/seed_test_data.py](performance/scripts/seed_test_data.py)
@@ -145,8 +147,11 @@ CLEANUP_AFTER_RUN=1 CLEANUP_DELETE_USERS=1 npm run perf:get-board
 - Seed only: `npm run perf:seed`
 - Create-task load test: `npm run perf:create-task`
 - Create-task 1000 RPS profile: `npm run perf:create-task:1k`
+- Create-task staged ramp profile: `npm run perf:create-task:ramp`
 - Cleanup seeded data only: `npm run perf:cleanup`
 - Cleanup and delete seeded users: `python3 performance/scripts/cleanup_test_data.py --delete-users`
+
+For local machines, jumping straight to 1000 RPS may saturate your laptop, local uvicorn process, or network stack and produce many dropped iterations/status=0 responses. Use the ramp profile first, then increase `TARGET_RPS` gradually.
 
 ## Performance Testing (AI Parse)
 
@@ -194,6 +199,8 @@ PARSE_AI_BASE_URL=http://localhost:8000 PARSE_AI_PATH=/parse-task npm run perf:p
 
 Use this mode sparingly. It validates the live model behavior, but it is not the right choice for high-volume stress runs.
 
+The parse runner blocks high-RPS runs to `/parse-task` by default. If you intentionally need to override that safety check, set `ALLOW_REAL_PARSE_HIGH_RPS=1`.
+
 ## RPS Notes For Local vs Fargate
 
 All three k6 scenarios now use constant-arrival-rate executors, so `TARGET_RPS` is the desired request rate and k6 scales VUs up to `MAX_VUS` to maintain it.
@@ -201,6 +208,17 @@ All three k6 scenarios now use constant-arrival-rate executors, so `TARGET_RPS` 
 - Local quick testing: start with lower values (for example `TARGET_RPS=50` to `200`).
 - High load profile: use the `:1k` scripts.
 - Fargate deployment: tune CPU/memory and task count first, then increase `TARGET_RPS`, `PREALLOCATED_VUS`, and `MAX_VUS` until you hit stable p95 latency and acceptable error rate.
+
+For official benchmark runs, avoid development reload mode and use production-style backend process settings:
+
+```bash
+npm run dev:api:prod
+```
+
+For ECS/Fargate validation, run two phases:
+
+1. Fixed-capacity phase (no scaling changes during the run) to establish clean baseline latency/error curves.
+2. Autoscaling phase to validate scaling policy behavior and recovery under rising RPS.
 
 ## Using Lists
 

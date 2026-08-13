@@ -6,6 +6,10 @@ const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.CREATE_TASK_PREAL
 const maxVus = Number(__ENV.MAX_VUS || __ENV.CREATE_TASK_MAX_VUS || '2000');
 const duration = __ENV.DURATION || '30s';
 const baseUrl = (__ENV.CREATE_TASK_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const p95Ms = Number(__ENV.P95_MS || '300');
+const p99Ms = Number(__ENV.P99_MS || '700');
+const maxErrorLogs = Number(__ENV.MAX_ERROR_LOGS || '25');
+let loggedErrors = 0;
 
 export const options = {
   scenarios: {
@@ -21,6 +25,7 @@ export const options = {
   thresholds: {
     checks: ['rate>0.95'],
     http_req_failed: ['rate<0.02'],
+    http_req_duration: [`p(95)<${p95Ms}`, `p(99)<${p99Ms}`],
   },
 };
 
@@ -76,8 +81,9 @@ function createTaskScenario() {
 
   const response = http.post(`${baseUrl}/tasks/upsert`, payload, params);
 
-  if (response.status !== 200) {
+  if (response.status !== 200 && loggedErrors < maxErrorLogs) {
     console.error(`create-task failed: status=${response.status} body=${response.body}`);
+    loggedErrors += 1;
   }
 
   check(response, {

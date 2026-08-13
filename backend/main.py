@@ -4,6 +4,10 @@ import os
 import re
 import time
 import logging
+import hashlib
+import json
+import threading
+from base64 import urlsafe_b64decode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -34,6 +38,11 @@ PARSE_MIN_INTERVAL_MS = 1800
 PARSE_MOCK_MIN_INTERVAL_MS = int(os.getenv("PARSE_MOCK_MIN_INTERVAL_MS", "0"))
 _recent_parse_by_client: dict[str, float] = {}
 _recent_mock_parse_by_client: dict[str, float] = {}
+AUTH_CACHE_MAX_TTL_SECONDS = int(os.getenv("AUTH_CACHE_MAX_TTL_SECONDS", "15"))
+_supabase_admin_client: Optional[Client] = None
+_supabase_admin_client_lock = threading.Lock()
+_auth_user_cache: dict[str, tuple[str, float]] = {}
+_auth_user_cache_lock = threading.Lock()
 
 parse_task_system_prompt = """You convert natural language task requests into a strict JSON object.
 
@@ -272,6 +281,11 @@ def is_valid_time(value: str) -> bool:
 
 
 def get_supabase_admin() -> Client:
+    global _supabase_admin_client
+
+    if _supabase_admin_client is not None:
+        return _supabase_admin_client
+
     # Accept frontend URL var as fallback to reduce local-env duplication.
     supabase_url = (
         os.getenv("SUPABASE_URL", "").strip()
@@ -295,7 +309,11 @@ def get_supabase_admin() -> Client:
             ),
         )
 
-    return create_client(supabase_url, service_role_key)
+    with _supabase_admin_client_lock:
+        if _supabase_admin_client is None:
+            _supabase_admin_client = create_client(supabase_url, service_role_key)
+
+    return _supabase_admin_client
 
 
 def extract_bearer_token(authorization: Optional[str]) -> str:
@@ -308,13 +326,86 @@ def extract_bearer_token(authorization: Optional[str]) -> str:
     return token
 
 
+def token_cache_key(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def decode_jwt_exp_epoch(token: str) -> Optional[int]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+
+    payload = parts[1]
+    padded_payload = payload + "=" * (-len(payload) % 4)
+
+    try:
+        decoded = urlsafe_b64decode(padded_payload.encode("utf-8")).decode("utf-8")
+        parsed = json.loads(decoded)
+    except Exception:
+        return None
+
+    raw_exp = parsed.get("exp") if isinstance(parsed, dict) else None
+    if isinstance(raw_exp, int):
+        return raw_exp
+    return None
+
+
+def get_cached_user_id_for_token(token: str) -> Optional[str]:
+    cache_key = token_cache_key(token)
+    now_epoch = time.time()
+
+    with _auth_user_cache_lock:
+        cached = _auth_user_cache.get(cache_key)
+        if not cached:
+            return None
+
+        user_id, expires_at_epoch = cached
+        if expires_at_epoch > now_epoch:
+            return user_id
+
+        _auth_user_cache.pop(cache_key, None)
+
+    return None
+
+
+def cache_user_id_for_token(token: str, user_id: str) -> None:
+    jwt_exp_epoch = decode_jwt_exp_epoch(token)
+    now_epoch = time.time()
+
+    # Keep cache very short-lived so normal auth behavior remains effectively unchanged
+    # while still reducing repeated remote auth lookups under sustained load.
+    ttl_seconds = AUTH_CACHE_MAX_TTL_SECONDS
+    if jwt_exp_epoch is not None:
+        ttl_seconds = min(ttl_seconds, max(0, int(jwt_exp_epoch - now_epoch)))
+
+    if ttl_seconds <= 0:
+        return
+
+    cache_key = token_cache_key(token)
+    expires_at_epoch = now_epoch + ttl_seconds
+
+    with _auth_user_cache_lock:
+        _auth_user_cache[cache_key] = (user_id, expires_at_epoch)
+
+
+def invalidate_token_cache(token: str) -> None:
+    cache_key = token_cache_key(token)
+    with _auth_user_cache_lock:
+        _auth_user_cache.pop(cache_key, None)
+
+
 def get_current_user_id(authorization: Optional[str]) -> str:
     token = extract_bearer_token(authorization)
+    cached_user_id = get_cached_user_id_for_token(token)
+    if cached_user_id:
+        return cached_user_id
+
     client = get_supabase_admin()
 
     try:
         result = client.auth.get_user(jwt=token)
     except Exception as exc:
+        invalidate_token_cache(token)
         raise HTTPException(status_code=401, detail="Invalid auth token.") from exc
 
     user = getattr(result, "user", None)
@@ -330,9 +421,12 @@ def get_current_user_id(authorization: Optional[str]) -> str:
         user_id = getattr(user, "id", None)
 
     if not user_id:
+        invalidate_token_cache(token)
         raise HTTPException(status_code=401, detail="Invalid auth token.")
 
-    return str(user_id)
+    resolved_user_id = str(user_id)
+    cache_user_id_for_token(token, resolved_user_id)
+    return resolved_user_id
 
 
 def validate_task_payload(task: TaskUpsertPayload) -> None:

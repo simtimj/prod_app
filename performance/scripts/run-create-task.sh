@@ -108,7 +108,8 @@ SUMMARY_FILE="${RESULTS_DIR}/create-task-summary-${TIMESTAMP}.json"
 
 echo "Running create-task load test against ${CREATE_TASK_BASE_URL}"
 
-exec k6 run \
+set +e
+k6 run \
   -e ACCESS_TOKEN="${ACCESS_TOKEN}" \
   -e CREATE_TASK_BASE_URL="${CREATE_TASK_BASE_URL}" \
   -e TARGET_RPS="${TARGET_RPS}" \
@@ -117,3 +118,14 @@ exec k6 run \
   -e DURATION="${DURATION}" \
   --summary-export "${SUMMARY_FILE}" \
   "${K6_SCRIPT}" "$@"
+run_exit_code=$?
+set -e
+
+if [[ ${run_exit_code} -ne 0 ]]; then
+  echo ""
+  echo "k6 exited with code ${run_exit_code}."
+  echo "If you see many status=0 errors or dropped iterations, your local machine or backend likely saturated before reaching TARGET_RPS=${TARGET_RPS}."
+  echo "Try a staged run: npm run perf:create-task:ramp"
+  echo "Or lower load: TARGET_RPS=250 PREALLOCATED_VUS=150 MAX_VUS=1200 npm run perf:create-task"
+  exit ${run_exit_code}
+fi

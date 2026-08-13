@@ -21,6 +21,8 @@ const targetRps = Number(__ENV.TARGET_RPS || __ENV.PARSE_AI_TARGET_RPS || '40');
 const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.PARSE_AI_PREALLOCATED_VUS || '200');
 const maxVus = Number(__ENV.MAX_VUS || __ENV.PARSE_AI_MAX_VUS || '2000');
 const duration = __ENV.DURATION || '30s';
+const p95Ms = Number(__ENV.P95_MS || '400');
+const p99Ms = Number(__ENV.P99_MS || '900');
 
 const parseSuccess = new Rate('parse_success');
 const parseHasDraftTitle = new Rate('parse_has_draft_title');
@@ -44,6 +46,7 @@ export const options = {
     parse_success: ['rate>0.95'],
     parse_has_draft_title: ['rate>0.95'],
     http_req_failed: ['rate<0.02'],
+    http_req_duration: [`p(95)<${p95Ms}`, `p(99)<${p99Ms}`],
   },
 };
 

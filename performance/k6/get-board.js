@@ -2,6 +2,8 @@ import http from 'k6/http';
 import { check } from 'k6';
 import { SharedArray } from 'k6/data';
 
+const REQUESTS_PER_ITERATION = 3;
+
 const users = new SharedArray('seeded-users', () => {
   const raw = open('../data/test-users.json');
   const parsed = JSON.parse(raw);
@@ -14,16 +16,20 @@ const users = new SharedArray('seeded-users', () => {
 });
 
 const baseUrl = (__ENV.BOARD_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
-const targetRps = Number(__ENV.TARGET_RPS || __ENV.BOARD_TARGET_RPS || '20');
+// TARGET_RPS is API-layer requests per second across /tasks + /lists + /settings.
+const targetApiRps = Number(__ENV.TARGET_RPS || __ENV.BOARD_TARGET_RPS || '20');
+const iterationRps = Math.max(1, Math.ceil(targetApiRps / REQUESTS_PER_ITERATION));
 const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.BOARD_PREALLOCATED_VUS || '200');
 const maxVus = Number(__ENV.MAX_VUS || __ENV.BOARD_MAX_VUS || '2000');
 const duration = __ENV.DURATION || '30s';
+const p95Ms = Number(__ENV.P95_MS || '300');
+const p99Ms = Number(__ENV.P99_MS || '700');
 
 export const options = {
   scenarios: {
     get_board_rps: {
       executor: 'constant-arrival-rate',
-      rate: targetRps,
+      rate: iterationRps,
       timeUnit: '1s',
       duration,
       preAllocatedVUs: preAllocatedVus,
@@ -33,6 +39,7 @@ export const options = {
   thresholds: {
     checks: ['rate>0.95'],
     http_req_failed: ['rate<0.02'],
+    http_req_duration: [`p(95)<${p95Ms}`, `p(99)<${p99Ms}`],
   },
 };
 

@@ -17,6 +17,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_PARSE_TASK_MODEL=gpt-4.1-mini
 PARSE_MOCK_MIN_INTERVAL_MS=0
+AUTH_CACHE_MAX_TTL_SECONDS=15
 ```
 
 ## Run Locally
@@ -32,6 +33,13 @@ Or directly:
 ```bash
 cd backend
 .venv/bin/python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+For production-style load testing (no reload):
+
+```bash
+cd backend
+.venv/bin/gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 --workers 2 --timeout 60 --graceful-timeout 30 --keep-alive 5
 ```
 
 ## Smoke Test
