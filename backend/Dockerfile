@@ -1,4 +1,4 @@
-FROM python:3.12.10-slim-bookworm AS builder
+FROM python:3.12.10-slim-bookworm@sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,7 +12,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt ./
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.12.10-slim-bookworm AS runner
+FROM python:3.12.10-slim-bookworm@sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -26,6 +26,9 @@ RUN addgroup --system app && adduser --system --ingroup app app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY main.py ./
+COPY entrypoint.sh ./
+
+RUN chmod +x /app/entrypoint.sh
 
 USER app
 EXPOSE 8000
@@ -33,4 +36,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.getenv(\"PORT\",\"8000\")}/health').read()"
 
-CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --workers ${WEB_CONCURRENCY:-2} --timeout 60 --graceful-timeout 30 --keep-alive 5"]
+CMD ["/app/entrypoint.sh"]
