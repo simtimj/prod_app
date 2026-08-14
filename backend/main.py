@@ -7,6 +7,7 @@ import logging
 import hashlib
 import json
 import threading
+from collections import OrderedDict
 from base64 import urlsafe_b64decode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -39,10 +40,15 @@ PARSE_MOCK_MIN_INTERVAL_MS = int(os.getenv("PARSE_MOCK_MIN_INTERVAL_MS", "0"))
 _recent_parse_by_client: dict[str, float] = {}
 _recent_mock_parse_by_client: dict[str, float] = {}
 AUTH_CACHE_MAX_TTL_SECONDS = int(os.getenv("AUTH_CACHE_MAX_TTL_SECONDS", "15"))
+AUTH_CACHE_MAX_ENTRIES = int(os.getenv("AUTH_CACHE_MAX_ENTRIES", "5000"))
+PARSE_CLIENT_TRACK_MAX_ENTRIES = int(os.getenv("PARSE_CLIENT_TRACK_MAX_ENTRIES", "20000"))
 _supabase_admin_client: Optional[Client] = None
 _supabase_admin_client_lock = threading.Lock()
-_auth_user_cache: dict[str, tuple[str, float]] = {}
+_openai_client: Optional[OpenAI] = None
+_openai_client_lock = threading.Lock()
+_auth_user_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
 _auth_user_cache_lock = threading.Lock()
+_parse_limiter_lock = threading.Lock()
 
 parse_task_system_prompt = """You convert natural language task requests into a strict JSON object.
 
@@ -254,10 +260,20 @@ def now_iso() -> str:
 
 
 def get_openai_client() -> OpenAI:
+    global _openai_client
+
+    if _openai_client is not None:
+        return _openai_client
+
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(status_code=500, detail="Missing OPENAI_API_KEY.")
-    return OpenAI(api_key=api_key)
+
+    with _openai_client_lock:
+        if _openai_client is None:
+            _openai_client = OpenAI(api_key=api_key)
+
+    return _openai_client
 
 
 def is_valid_date(value: str) -> bool:
@@ -361,6 +377,7 @@ def get_cached_user_id_for_token(token: str) -> Optional[str]:
 
         user_id, expires_at_epoch = cached
         if expires_at_epoch > now_epoch:
+            _auth_user_cache.move_to_end(cache_key)
             return user_id
 
         _auth_user_cache.pop(cache_key, None)
@@ -386,12 +403,48 @@ def cache_user_id_for_token(token: str, user_id: str) -> None:
 
     with _auth_user_cache_lock:
         _auth_user_cache[cache_key] = (user_id, expires_at_epoch)
+        _auth_user_cache.move_to_end(cache_key)
+
+        expired_keys = [key for key, (_, expires_at) in _auth_user_cache.items() if expires_at <= now_epoch]
+        for key in expired_keys:
+            _auth_user_cache.pop(key, None)
+
+        while len(_auth_user_cache) > AUTH_CACHE_MAX_ENTRIES:
+            _auth_user_cache.popitem(last=False)
 
 
 def invalidate_token_cache(token: str) -> None:
     cache_key = token_cache_key(token)
     with _auth_user_cache_lock:
         _auth_user_cache.pop(cache_key, None)
+
+
+def prune_recent_client_map(
+    recent_by_client: dict[str, float],
+    *,
+    now_ms: float,
+    min_interval_ms: int,
+) -> None:
+    if not recent_by_client:
+        return
+
+    ttl_ms = max(min_interval_ms * 2, 300000)
+    stale_before_ms = now_ms - ttl_ms
+
+    stale_keys = [key for key, seen_ms in recent_by_client.items() if seen_ms < stale_before_ms]
+    for key in stale_keys:
+        recent_by_client.pop(key, None)
+
+    excess_entries = len(recent_by_client) - PARSE_CLIENT_TRACK_MAX_ENTRIES
+    if excess_entries <= 0:
+        return
+
+    oldest_keys = [
+        key
+        for key, _ in sorted(recent_by_client.items(), key=lambda item: item[1])[:excess_entries]
+    ]
+    for key in oldest_keys:
+        recent_by_client.pop(key, None)
 
 
 def get_current_user_id(authorization: Optional[str]) -> str:
@@ -776,7 +829,28 @@ def upsert_task(
         "updated_at": task.updated_at or current_time,
     }
 
-    client.table("tasks").upsert(payload, on_conflict="id").execute()
+    existing_task_result = (
+        client.table("tasks")
+        .select("id, user_id, created_at")
+        .eq("id", task.id)
+        .limit(1)
+        .execute()
+    )
+    existing_task_row = (existing_task_result.data or [None])[0]
+
+    if existing_task_row:
+        existing_owner = str(existing_task_row.get("user_id")) if isinstance(existing_task_row, dict) else None
+        if existing_owner != user_id:
+            raise HTTPException(status_code=403, detail="Task id already exists for another user.")
+
+        persisted_created_at = existing_task_row.get("created_at") if isinstance(existing_task_row, dict) else None
+        if persisted_created_at:
+            payload["created_at"] = persisted_created_at
+
+        client.table("tasks").update(payload).eq("id", task.id).eq("user_id", user_id).execute()
+        return OkResponse()
+
+    client.table("tasks").insert(payload).execute()
     return OkResponse()
 
 
@@ -877,23 +951,24 @@ def enforce_parse_interval(
     min_interval_ms: int,
 ) -> None:
     if min_interval_ms <= 0:
-        recent_by_client[client_key] = time.time() * 1000
         return
 
     now_ms = time.time() * 1000
-    previous_ms = recent_by_client.get(client_key, 0)
-    elapsed_ms = now_ms - previous_ms
-    if elapsed_ms < min_interval_ms:
-        retry_after_seconds = max(1, int((min_interval_ms - elapsed_ms + 999) // 1000))
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "error": f"Rate limited. Please wait {retry_after_seconds}s and try again.",
-                "retryAfterSeconds": retry_after_seconds,
-            },
-        )
+    with _parse_limiter_lock:
+        prune_recent_client_map(recent_by_client, now_ms=now_ms, min_interval_ms=min_interval_ms)
+        previous_ms = recent_by_client.get(client_key, 0)
+        elapsed_ms = now_ms - previous_ms
+        if elapsed_ms < min_interval_ms:
+            retry_after_seconds = max(1, int((min_interval_ms - elapsed_ms + 999) // 1000))
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": f"Rate limited. Please wait {retry_after_seconds}s and try again.",
+                    "retryAfterSeconds": retry_after_seconds,
+                },
+            )
 
-    recent_by_client[client_key] = now_ms
+        recent_by_client[client_key] = now_ms
 
 
 def clean_mock_title(text: str) -> str:

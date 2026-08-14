@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine3.22 AS base
 
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
@@ -19,7 +19,7 @@ COPY . .
 RUN test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" && test -n "$FASTAPI_BASE_URL"
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine3.22 AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
@@ -40,5 +40,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/" || exit 1
 
 CMD ["node", "server.js"]
