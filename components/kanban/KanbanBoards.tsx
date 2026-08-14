@@ -1118,17 +1118,26 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setRecentlyArchivedTask(null);
 
       if (!userId) {
+        const todayDateKey = toDateKey(new Date());
+        preferredDateKeyRef.current = todayDateKey;
+        pendingScrollToDateKeyRef.current = todayDateKey;
         skipNextSavedListsSyncRef.current = false;
         setSavedLists(createDefaultSavedLists());
         const storedWidth = readStoredListPanelWidth();
         setListPanelWidthPx(storedWidth ?? DEFAULT_LIST_PANEL_WIDTH_PX);
         setReturnToTodayOnFocus(DEFAULT_RETURN_TO_TODAY_ON_FOCUS);
         setArchivedTasks([]);
-        setDays((currentDays) =>
-          currentDays.length === 0
-            ? buildRollingDayColumns(new Date())
-            : currentDays.map((day) => ({ ...day, tasks: [] }))
-        );
+        setDays((currentDays) => {
+          const nextDays =
+            currentDays.length === 0
+              ? buildRollingDayColumns(new Date())
+              : currentDays.map((day) => ({ ...day, tasks: [] }));
+          const todayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+          if (todayIndex >= 0) {
+            setSelectedIndex(todayIndex);
+          }
+          return nextDays;
+        });
         setBoardLoading(false);
         return;
       }
@@ -1161,9 +1170,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             window.localStorage.setItem(LIST_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
           }
         }
+        const todayDateKey = toDateKey(new Date());
+        preferredDateKeyRef.current = todayDateKey;
+        pendingScrollToDateKeyRef.current = todayDateKey;
+
         setDays((currentDays) => {
           const baseDays = currentDays.length === 0 ? buildRollingDayColumns(new Date()) : currentDays;
-          return buildDayColumnsFromRows(baseDays, activeRows, new Date());
+          const nextDays = buildDayColumnsFromRows(baseDays, activeRows, new Date());
+          const todayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+          if (todayIndex >= 0) {
+            setSelectedIndex(todayIndex);
+          }
+          return nextDays;
         });
         setArchivedTasks(mapArchivedRowsToEntries(archivedRows));
         setBoardLoading(false);
