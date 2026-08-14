@@ -1850,7 +1850,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const task = nextDays[fromDay]?.tasks?.[fromTask];
     if (!task) return;
     nextDays[fromDay].tasks.splice(fromTask, 1);
-    nextDays[toDay].tasks = [...nextDays[toDay].tasks, { ...task, dueDate: getDayDateKeyForColumn(toDay), updatedAt: new Date().toISOString() }];
+    // Keep dueDate independent from board-column date when cards are moved.
+    nextDays[toDay].tasks = [...nextDays[toDay].tasks, { ...task, updatedAt: new Date().toISOString() }];
     setDays(nextDays);
 
     if (currentUserId && task.id) {
@@ -1887,7 +1888,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       return;
     }
 
-    targetTasks.splice(nextInsertIndex, 0, { ...task, dueDate: getDayDateKeyForColumn(toDay), updatedAt: new Date().toISOString() });
+    // Keep dueDate independent from board-column date when cards are moved.
+    targetTasks.splice(nextInsertIndex, 0, { ...task, updatedAt: new Date().toISOString() });
     setDays(nextDays);
 
     if (currentUserId && task.id) {
