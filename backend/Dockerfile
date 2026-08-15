@@ -18,11 +18,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venv/bin:$PATH" \
+  HOME=/home/app \
     PORT=8000
 
 WORKDIR /app
 
-RUN addgroup --system app && adduser --system --ingroup app app
+RUN addgroup --system app \
+  && adduser --system --ingroup app --home /home/app app \
+  && mkdir -p /home/app \
+  && chown -R app:app /home/app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY main.py ./
