@@ -171,6 +171,11 @@ export default function KanbanColumn({
         }
       : undefined;
 
+  const openAddTask = () => {
+    setActiveAddIndex(index);
+    setNewTaskInput("");
+  };
+
   const renderTaskCards = () =>
     visibleTaskEntries.map(({ task, taskIndex }) => {
       const isEditing = editingTask?.dayIndex === index && editingTask?.taskIndex === taskIndex;
@@ -232,11 +237,6 @@ export default function KanbanColumn({
 
   const renderDropZone = () => {
     if (isSearching) return null;
-
-    const openAddTask = () => {
-      setActiveAddIndex(index);
-      setNewTaskInput("");
-    };
 
     return (
       <div
@@ -709,7 +709,7 @@ export default function KanbanColumn({
       } ${index === 0 ? "mr-2" : "mx-2"} ${index === totalDays - 1 ? "ml-2" : ""}`}
       style={applyColor ? { borderColor: dayColor, backgroundColor: isSelected ? hexToRgba(dayColor, 0.08) : undefined } : undefined}
     >
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <div className={todayDateClasses} style={todayDateStyle}>
             <p className={`text-[0.55rem] font-semibold uppercase tracking-[0.22em] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
@@ -720,6 +720,19 @@ export default function KanbanColumn({
             </p>
           </div>
         </div>
+        {!isSearching ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openAddTask();
+            }}
+            className="rounded-full border px-2 py-1 text-[0.62rem] font-semibold uppercase tracking-widest transition hover:brightness-90"
+            style={applyColor ? { backgroundColor: hexToRgba(dayColor, 0.14), borderColor: dayColor, color: "#000" } : undefined}
+          >
+            Add task
+          </button>
+        ) : null}
       </div>
 
       <div className="space-y-1">
