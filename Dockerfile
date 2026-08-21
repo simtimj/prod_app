@@ -10,10 +10,8 @@ RUN npm ci
 FROM base AS builder
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG FASTAPI_BASE_URL
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV FASTAPI_BASE_URL=$FASTAPI_BASE_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
@@ -40,6 +38,6 @@ USER nextjs
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
 
 CMD ["node", "server.js"]

@@ -3,7 +3,7 @@
 This checklist is tailored to the current repo setup:
 - Frontend (Next.js standalone) container on port `3000`
 - Backend (FastAPI + gunicorn/uvicorn) container on port `8000`
-- Frontend health route: `/api/health`
+- Frontend health route: `/healthz`
 - Backend health route: `/health`
 
 ## 1. Container Images (ECR)
@@ -86,7 +86,7 @@ Use these as initial values, then tune with load tests.
 For ECS, do not bake a backend URL into the frontend image. Route `/api/*` directly from the ALB to the backend service instead.
 
 4. Health check (target group):
-- path: `/api/health`
+- path: `/healthz`
 - matcher: `200`
 - interval: `30s`
 - timeout: `5s`
@@ -162,7 +162,7 @@ Before calling deployment stable:
 1. Deploy backend service first.
 2. Verify backend target health on `/health`.
 3. Deploy frontend service.
-4. Verify frontend target health on `/api/health`.
+4. Verify frontend target health on `/healthz`.
 5. Run staged load:
 - 100 -> 250 -> 500 -> 750 -> 1000 RPS
 6. Record ECS + ALB + app metrics for each stage.
