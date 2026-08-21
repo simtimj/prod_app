@@ -63,11 +63,13 @@ Expected checks:
 
 ## Frontend Proxy
 
-Frontend calls `/api/tasks`, `/api/parse-task`, and `/api/parse-task/mock` through Next rewrites.
-Set this in frontend env if needed:
+For local frontend proxying, the app can use optional Next rewrites for `/api/tasks`, `/api/parse-task`, and `/api/parse-task/mock`.
+Set this in frontend env only when you want the frontend server to proxy directly to FastAPI:
 
 ```bash
 FASTAPI_BASE_URL=http://127.0.0.1:8000
 ```
+
+For ECS/Fargate, prefer ALB path-based routing for `/api/*` and do not bake `FASTAPI_BASE_URL` into the frontend image.
 
 Use `/parse-task/mock` when you want to stress the parse pipeline without invoking OpenAI. Set `PARSE_MOCK_MIN_INTERVAL_MS` if you want the mock route to simulate production-style throttling.

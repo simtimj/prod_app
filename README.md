@@ -44,7 +44,9 @@ FASTAPI_PARSE_TASK_URL=http://127.0.0.1:8000/parse-task
 
 ## FastAPI Parser Service
 
-Requests to `/api/parse-task` are forwarded to Python FastAPI through a Next.js rewrite in `next.config.ts`.
+In local development, requests to `/api/parse-task` are forwarded to Python FastAPI through an optional Next.js rewrite in `next.config.ts`.
+
+In ECS/Fargate, prefer ALB path-based routing so `/api/*` goes directly to the backend service and the frontend image stays environment-agnostic.
 
 Run the parser service locally:
 

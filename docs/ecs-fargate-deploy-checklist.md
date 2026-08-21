@@ -26,7 +26,11 @@ This checklist is tailored to the current repo setup:
 - frontend target group -> port `3000`
 - backend target group -> port `8000`
 
-3. Use private subnets for tasks, public ALB.
+3. Add ALB path-based routing so API traffic bypasses the frontend container:
+- `/api/*` -> backend target group
+- `/*` -> frontend target group
+
+4. Use private subnets for tasks, public ALB.
 
 ## 3. Task Definition Defaults (Starting Point)
 
@@ -78,7 +82,8 @@ Use these as initial values, then tune with load tests.
 - `NODE_ENV=production`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `FASTAPI_BASE_URL` (internal backend URL behind ALB/service discovery)
+
+For ECS, do not bake a backend URL into the frontend image. Route `/api/*` directly from the ALB to the backend service instead.
 
 4. Health check (target group):
 - path: `/api/health`
