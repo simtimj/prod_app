@@ -67,7 +67,7 @@ For local frontend proxying, the app can use optional Next rewrites for `/api/ta
 Set this in frontend env only when you want the frontend server to proxy directly to FastAPI:
 
 ```bash
-FASTAPI_BASE_URL=http://127.0.0.1:8000
+FASTAPI_BASE_URL=http://productivity-backend-ALB-782333318.us-east-1.elb.amazonaws.com
 ```
 
 For ECS/Fargate, prefer ALB path-based routing for `/api/*` and do not bake `FASTAPI_BASE_URL` into the frontend image.

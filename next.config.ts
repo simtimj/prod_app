@@ -4,11 +4,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   async rewrites() {
     const fastApiBaseUrl = process.env.FASTAPI_BASE_URL?.replace(/\/+$/, "")
-      ?? (process.env.NODE_ENV === "production" ? null : "http://127.0.0.1:8000");
-
-    if (!fastApiBaseUrl) {
-      return [];
-    }
+      ?? "http://productivity-backend-ALB-782333318.us-east-1.elb.amazonaws.com";
 
     return [
       {
