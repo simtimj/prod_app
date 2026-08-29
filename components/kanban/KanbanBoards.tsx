@@ -168,6 +168,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [activeAddIndex, setActiveAddIndex] = useState<number | null>(null);
   const [smartTaskLoading, setSmartTaskLoading] = useState(false);
   const [smartTaskError, setSmartTaskError] = useState<string | null>(null);
+  const [smartTaskErrorDayIndex, setSmartTaskErrorDayIndex] = useState<number | null>(null);
   const [smartTaskRetryUntilMs, setSmartTaskRetryUntilMs] = useState<number | null>(null);
   const [smartTaskPreview, setSmartTaskPreview] = useState<{
     dayIndex: number;
@@ -1158,6 +1159,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       setEditTaskInput("");
       setActiveAddIndex(null);
       setSmartTaskError(null);
+      setSmartTaskErrorDayIndex(null);
       setSmartTaskPreview(null);
       setSmartTaskRetryUntilMs(null);
       setContextMenu(null);
@@ -1418,11 +1420,13 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (smartTaskRetryUntilMs && nowMs < smartTaskRetryUntilMs) {
       const waitSeconds = Math.max(1, Math.ceil((smartTaskRetryUntilMs - nowMs) / 1000));
       setSmartTaskError(`Please wait ${waitSeconds}s before trying again.`);
+      setSmartTaskErrorDayIndex(dayIndex);
       return;
     }
 
     setSmartTaskLoading(true);
     setSmartTaskError(null);
+    setSmartTaskErrorDayIndex(null);
 
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -1479,6 +1483,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not parse task.";
       setSmartTaskError(message);
+      setSmartTaskErrorDayIndex(dayIndex);
     } finally {
       setSmartTaskLoading(false);
     }
@@ -1510,6 +1515,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setNewTaskInput("");
     setActiveAddIndex(null);
     setSmartTaskError(null);
+    setSmartTaskErrorDayIndex(null);
   };
 
   const cancelSmartTaskPreview = () => {
@@ -3356,6 +3362,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             }
             ignoreScrollRef.current = true;
             setSelectedIndex(dayIndex);
+            setSmartTaskError(null);
+            setSmartTaskErrorDayIndex(null);
           }}
           setDayRef={(dayIndex, element) => {
             dayRefs.current[dayIndex] = element;
@@ -3395,13 +3403,23 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           onHandleListDragOver={handleListDragOver}
           activeAddIndex={activeAddIndex}
           newTaskInput={newTaskInput}
-          setNewTaskInput={setNewTaskInput}
-          setActiveAddIndex={setActiveAddIndex}
+          setNewTaskInput={(value) => {
+            setNewTaskInput(value);
+            if (smartTaskError) {
+              setSmartTaskError(null);
+              setSmartTaskErrorDayIndex(null);
+            }
+          }}
+          setActiveAddIndex={(value) => {
+            setActiveAddIndex(value);
+            setSmartTaskError(null);
+            setSmartTaskErrorDayIndex(null);
+          }}
           addInputRef={addInputRef}
           onAddTaskToList={addTaskToList}
           onParseTaskInput={submitSmartTaskInput}
           smartTaskLoading={smartTaskLoading}
-          smartTaskError={smartTaskError}
+          smartTaskError={smartTaskErrorDayIndex === index ? smartTaskError : null}
           contextMenu={contextMenu}
           contextMenuRef={contextMenuRef}
           contextMenuMoveOpen={contextMenuMoveOpen}

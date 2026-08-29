@@ -39,3 +39,14 @@
 [browser] Could not load saved lists. 
     at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1309:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1309:25)
  GET / 200 in 80ms (next.js: 8ms, application-code: 72ms)
+ GET / 200 in 632ms (next.js: 278ms, application-code: 354ms)
+[browser] Invalid auth token. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)
+ GET / 200 in 56ms (next.js: 6ms, application-code: 50ms)
+[browser] Invalid auth token. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)
+ GET / 200 in 143ms (next.js: 4ms, application-code: 138ms)
+✓ Compiled in 2.8s
+[browser] Could not load tasks. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1311:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1311:25)
+ GET / 200 in 234ms (next.js: 92ms, application-code: 142ms)
