@@ -9,6 +9,14 @@ export async function signInWithEmailPassword(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password });
 }
 
+export async function sendPasswordResetEmail(email: string, redirectTo: string) {
+  return supabase.auth.resetPasswordForEmail(email, { redirectTo });
+}
+
+export async function updateCurrentUserPassword(password: string) {
+  return supabase.auth.updateUser({ password });
+}
+
 export async function signOutUser() {
   return supabase.auth.signOut();
 }

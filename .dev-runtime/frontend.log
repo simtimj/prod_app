@@ -1,0 +1,41 @@
+
+> prod_app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.0.0.87:3000
+- Environments: .env.local
+✓ Ready in 769ms
+
+ GET / 200 in 1536ms (next.js: 989ms, application-code: 547ms)
+✓ Compiled in 550ms
+✓ Compiled in 163ms
+✓ Compiled in 91ms
+✓ Compiled in 172ms
+✓ Compiled in 441ms
+✓ Compiled in 244ms
+✓ Compiled in 750ms
+✓ Compiled in 586ms
+✓ Compiled in 171ms
+✓ Compiled in 142ms
+ GET / 200 in 192ms (next.js: 28ms, application-code: 164ms)
+ GET / 200 in 62ms (next.js: 5ms, application-code: 57ms)
+ GET / 200 in 61ms (next.js: 2ms, application-code: 58ms)
+[browser] Could not load saved lists. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)
+✓ Compiled in 1327ms
+✓ Compiled in 976ms
+✓ Compiled in 73ms
+✓ Compiled in 700ms
+✓ Compiled in 73ms
+✓ Compiled in 151ms
+✓ Compiled in 1348ms
+ GET / 200 in 467ms (next.js: 85ms, application-code: 382ms)
+ GET / 200 in 31ms (next.js: 5ms, application-code: 26ms)
+ GET / 200 in 273ms (next.js: 23ms, application-code: 250ms)
+ GET / 200 in 63ms (next.js: 5ms, application-code: 59ms)
+✓ Compiled in 1574ms
+[browser] Could not load saved lists. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1309:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1309:25)
+ GET / 200 in 80ms (next.js: 8ms, application-code: 72ms)

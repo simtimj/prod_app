@@ -1,0 +1,10 @@
+
+> prod_app@0.1.0 dev:api
+> cd backend && .venv/bin/python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+
+INFO:     Will watch for changes in these directories: ['/Users/juliussimtim/Desktop/code/personal apps/prod_app/backend']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [52182] using WatchFiles
+INFO:     Started server process [52522]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

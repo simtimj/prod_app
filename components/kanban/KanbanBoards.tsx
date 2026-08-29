@@ -24,6 +24,8 @@ import {
   signInWithEmailPassword,
   signOutUser,
   signUpWithEmailPassword,
+  sendPasswordResetEmail,
+  updateCurrentUserPassword,
   subscribeToAuthChanges,
 } from "@/lib/database/authRepository";
 import {
@@ -47,7 +49,7 @@ import {
   upsertTask,
 } from "@/lib/database/tasksRepository";
 
-type AuthAction = "signup" | "signin" | "signout";
+type AuthAction = "signup" | "signin" | "forgot" | "reset" | "signout";
 
 const LAST_VIEWED_DATE_STORAGE_KEY = "kanban:last-viewed-date";
 const SAVED_LISTS_STORAGE_KEY = "kanban:saved-lists-v1";
@@ -153,7 +155,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [optionsMenuPosition, setOptionsMenuPosition] = useState<{ top: number; left: number; minWidth: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsMenuPosition, setSettingsMenuPosition] = useState<{ top: number; left: number; minWidth: number } | null>(null);
+  const [settingsMenuPosition, setSettingsMenuPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const [recurringPanelOpen, setRecurringPanelOpen] = useState(false);
   const [archivePanelOpen, setArchivePanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -200,6 +202,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const [authAction, setAuthAction] = useState<AuthAction | null>(null);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [authShowPassword, setAuthShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
@@ -214,6 +218,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const searchPanelRef = useRef<HTMLDivElement | null>(null);
   const topMenusRef = useRef<HTMLDivElement | null>(null);
   const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const hamburgerButtonRef = useRef<HTMLButtonElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const listsPanelRef = useRef<HTMLDivElement | null>(null);
   const archiveUndoRef = useRef<HTMLDivElement | null>(null);
@@ -250,7 +255,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     listId === BACKLOG_LIST_ID || listId === RECURRING_LIST_ID || listId === ARCHIVE_LIST_ID;
 
   const positionOptionsMenu = () => {
-    const buttonRect = optionsButtonRef.current?.getBoundingClientRect();
+    const buttonRect = hamburgerButtonRef.current?.getBoundingClientRect() ?? optionsButtonRef.current?.getBoundingClientRect();
     if (!buttonRect) return;
 
     setOptionsMenuPosition({
@@ -271,13 +276,17 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   };
 
   const positionSettingsMenu = () => {
-    const buttonRect = settingsButtonRef.current?.getBoundingClientRect();
+    const buttonRect = settingsButtonRef.current?.getBoundingClientRect() ?? hamburgerButtonRef.current?.getBoundingClientRect();
     if (!buttonRect) return;
 
+    const menuWidth = 168;
+    const optionsLeft = optionsMenuPosition?.left ?? buttonRect.left;
+    const desiredLeft = optionsLeft - menuWidth;
+
     setSettingsMenuPosition({
-      top: buttonRect.bottom + 8,
-      left: Math.max(12, buttonRect.right - 176),
-      minWidth: Math.max(176, buttonRect.width),
+      top: buttonRect.top,
+      left: Math.max(12, desiredLeft),
+      width: menuWidth,
     });
   };
 
@@ -1019,6 +1028,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setAuthAction(nextAction);
     setAuthError("");
     setAuthSuccess("");
+    setAuthPassword("");
+    setAuthConfirmPassword("");
+    setAuthShowPassword(false);
     closeOptionsMenu();
   };
 
@@ -1027,6 +1039,9 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     setAuthAction(null);
     setAuthError("");
     setAuthSuccess("");
+    setAuthPassword("");
+    setAuthConfirmPassword("");
+    setAuthShowPassword(false);
   };
 
   const handleImmediateSignOut = async () => {
@@ -1054,11 +1069,27 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     const email = authEmail.trim();
     const password = authPassword;
+    const confirmPassword = authConfirmPassword;
     setAuthError("");
     setAuthSuccess("");
 
-    if (authAction !== "signout" && (!email || !password)) {
+    if (["signup", "signin", "forgot"].includes(authAction) && !email) {
+      setAuthError("Email is required.");
+      return;
+    }
+
+    if (["signup", "signin", "reset"].includes(authAction) && !password) {
+      setAuthError("Password is required.");
+      return;
+    }
+
+    if (authAction === "signup" && (!email || !password)) {
       setAuthError("Email and password are required.");
+      return;
+    }
+
+    if (authAction === "reset" && password !== confirmPassword) {
+      setAuthError("Passwords do not match.");
       return;
     }
 
@@ -1074,6 +1105,22 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         const { error } = await signInWithEmailPassword(email, password);
         if (error) throw error;
         setAuthSuccess("Signed in successfully.");
+      }
+
+      if (authAction === "forgot") {
+        const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : "/";
+        const { error } = await sendPasswordResetEmail(email, redirectTo);
+        if (error) throw error;
+        setAuthSuccess("Password reset email sent. Check your inbox and use the link to set a new password.");
+      }
+
+      if (authAction === "reset") {
+        const { error } = await updateCurrentUserPassword(password);
+        if (error) throw error;
+        setAuthSuccess("Password updated successfully. You can sign in now.");
+        setAuthAction("signin");
+        setAuthPassword("");
+        setAuthConfirmPassword("");
       }
 
       if (authAction === "signout") {
@@ -1212,8 +1259,18 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     const {
       data: { subscription },
-    } = subscribeToAuthChanges((_event, session) => {
+    } = subscribeToAuthChanges((event, session) => {
       if (cancelled) return;
+
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthAction("reset");
+        setAuthError("");
+        setAuthSuccess("Reset link opened. Enter your new password.");
+        setAuthPassword("");
+        setAuthConfirmPassword("");
+        setAuthShowPassword(false);
+      }
+
       void loadTasksForUser(session?.user.id ?? null, session?.user.email ?? null);
     });
 
@@ -2995,6 +3052,8 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       currentUserId={currentUserId}
       currentUserEmail={currentUserEmail}
       openAuthDialog={openAuthDialog}
+      openSettingsMenu={openSettingsMenu}
+      settingsButtonRef={settingsButtonRef}
       handleImmediateSignOut={handleImmediateSignOut}
       closeOptionsMenu={closeOptionsMenu}
       setDarkMode={setDarkMode}
@@ -3007,8 +3066,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       darkMode={darkMode}
       settingsOpen={settingsOpen}
       settingsMenuPosition={settingsMenuPosition}
-      returnToTodayOnFocus={returnToTodayOnFocus}
-      toggleReturnToTodayOnFocusPreference={toggleReturnToTodayOnFocusPreference}
       saveListPanelWidthPreference={saveListPanelWidthPreference}
       resetListPanelSize={resetListPanelSize}
       closeSettingsMenu={closeSettingsMenu}
@@ -3018,13 +3075,27 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const renderAuthDialog = () => {
     if (!authAction) return null;
 
-    const actionLabel = authAction === "signup" ? "Sign Up" : "Sign In";
+    const actionLabel =
+      authAction === "signup"
+        ? "Register"
+        : authAction === "forgot"
+          ? "Reset Password"
+          : authAction === "reset"
+            ? "Set New Password"
+            : "Sign In";
     const submitLabel = authLoading ? "Working..." : actionLabel;
+    const passwordInputType = authShowPassword ? "text" : "password";
+    const showEmailField = authAction === "signup" || authAction === "signin" || authAction === "forgot";
+    const showPasswordField = authAction === "signup" || authAction === "signin" || authAction === "reset";
+    const lockDialogForPasswordRecovery = authAction === "forgot" || authAction === "reset";
 
     return (
       <div
         className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4"
-        onClick={closeAuthDialog}
+        onClick={() => {
+          if (lockDialogForPasswordRecovery) return;
+          closeAuthDialog();
+        }}
       >
         <div
           className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${darkMode ? "border-[#372a5d] bg-[#1f1830] text-slate-100" : "border-slate-200 bg-white text-slate-900"}`}
@@ -3043,27 +3114,98 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           </div>
 
           <div className="mt-4 grid gap-3">
-            <label className="grid gap-1 text-sm">
-              <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Email</span>
-              <input
-                type="email"
-                value={authEmail}
-                onChange={(event) => setAuthEmail(event.target.value)}
-                placeholder="you@example.com"
-                className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
-              />
-            </label>
+            {showEmailField ? (
+              <label className="grid gap-1 text-sm">
+                <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Email</span>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                />
+              </label>
+            ) : null}
 
-            <label className="grid gap-1 text-sm">
-              <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Password</span>
-              <input
-                type="password"
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                placeholder="Your password"
-                className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
-              />
-            </label>
+            {showPasswordField ? (
+              <label className="grid gap-1 text-sm">
+                <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Password</span>
+                <div className="relative">
+                  <input
+                    type={passwordInputType}
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder={authAction === "reset" ? "New password" : "Your password"}
+                    className={`w-full rounded-md border px-3 py-2 pr-10 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAuthShowPassword((prev) => !prev)}
+                    aria-label={authShowPassword ? "Hide password" : "Show password"}
+                    title={authShowPassword ? "Hide password" : "Show password"}
+                    className={`absolute inset-y-0 right-0 flex items-center justify-center px-3 transition ${darkMode ? "text-slate-200 hover:text-slate-100" : "text-slate-600 hover:text-slate-900"}`}
+                  >
+                    {authShowPassword ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="m4.5 4.5 15 15" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </label>
+            ) : null}
+
+            {authAction === "reset" ? (
+              <label className="grid gap-1 text-sm">
+                <span className={darkMode ? "text-slate-300" : "text-slate-700"}>Confirm new password</span>
+                <input
+                  type={passwordInputType}
+                  value={authConfirmPassword}
+                  onChange={(event) => setAuthConfirmPassword(event.target.value)}
+                  placeholder="Confirm new password"
+                  className={`w-full rounded-md border px-3 py-2 text-sm outline-none transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 focus:border-[#7d6ba6]" : "border-slate-300 bg-white text-slate-900 focus:border-slate-500"}`}
+                />
+              </label>
+            ) : null}
+
+            {authAction === "signin" ? (
+              <button
+                type="button"
+                onClick={() => openAuthDialog("forgot")}
+                className={`-mt-1 self-start text-sm font-medium underline-offset-4 transition hover:underline ${darkMode ? "text-slate-300 hover:text-slate-100" : "text-slate-600 hover:text-slate-900"}`}
+              >
+                Forgot password?
+              </button>
+            ) : null}
+
+            {authAction === "forgot" ? (
+              <div className={`rounded-md border px-3 py-2 text-sm ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                We&apos;ll send a password reset link to your email.
+              </div>
+            ) : null}
+
+            {authAction === "reset" ? (
+              <div className={`rounded-md border px-3 py-2 text-sm ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                Choose a new password, then save it here to update your account.
+              </div>
+            ) : null}
+
+            {authAction === "forgot" ? (
+              <button
+                type="button"
+                onClick={() => openAuthDialog("signin")}
+                className={`-mt-1 self-start text-sm font-medium underline-offset-4 transition hover:underline ${darkMode ? "text-slate-300 hover:text-slate-100" : "text-slate-600 hover:text-slate-900"}`}
+              >
+                Back to sign in
+              </button>
+            ) : null}
 
             {authError ? (
               <p className={`rounded-md border px-3 py-2 text-sm ${darkMode ? "border-red-500/50 bg-red-500/10 text-red-200" : "border-red-200 bg-red-50 text-red-700"}`}>
@@ -4298,7 +4440,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         <div ref={topMenusRef} className="relative z-[110] flex items-center gap-2">
           <div className="relative">
             <button
-              ref={optionsButtonRef}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -4324,28 +4465,10 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           </div>
           <div className="relative">
             <button
-              ref={settingsButtonRef}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setViewsOpen(false);
-                closeOptionsMenu();
-                if (settingsOpen) {
-                  closeSettingsMenu();
-                } else {
-                  openSettingsMenu();
-                }
+              ref={(node) => {
+                hamburgerButtonRef.current = node;
+                optionsButtonRef.current = node;
               }}
-              aria-expanded={settingsOpen}
-              aria-label="Settings"
-              className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
-            >
-              Settings
-            </button>
-            {renderSettingsDropdown()}
-          </div>
-          <div className="relative">
-            <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -4364,6 +4487,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
               <span className="text-lg">☰</span>
             </button>
             {renderOptionsDropdown()}
+            {renderSettingsDropdown()}
           </div>
         </div>
       </header>

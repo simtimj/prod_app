@@ -12,7 +12,9 @@ type OptionsDropdownProps = {
   optionsMenuPosition: OptionsMenuPosition | null;
   currentUserId: string | null;
   currentUserEmail: string | null;
-  openAuthDialog: (nextAction: "signup" | "signin" | "signout") => void;
+  openAuthDialog: (nextAction: "signup" | "signin" | "forgot" | "signout") => void;
+  openSettingsMenu: () => void;
+  settingsButtonRef: React.RefObject<HTMLButtonElement | null>;
   handleImmediateSignOut: () => void;
   closeOptionsMenu: () => void;
   setDarkMode: React.Dispatch<React.SetStateAction<boolean>>;
@@ -26,6 +28,8 @@ export default function OptionsDropdown({
   currentUserId,
   currentUserEmail,
   openAuthDialog,
+  openSettingsMenu,
+  settingsButtonRef,
   handleImmediateSignOut,
   closeOptionsMenu,
   setDarkMode,
@@ -59,7 +63,7 @@ export default function OptionsDropdown({
               onClick={() => openAuthDialog("signup")}
               className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
             >
-              Sign Up
+              Register
             </button>
             <button
               type="button"
@@ -79,26 +83,39 @@ export default function OptionsDropdown({
           </button>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => {
-          setDarkMode((prev) => !prev);
-          closeOptionsMenu();
-        }}
-        className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
-      >
-        {darkMode ? "Switch to Light" : "Switch to Dark"}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setArchivePanelOpen(true);
-          closeOptionsMenu();
-        }}
-        className={`mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
-      >
-        Archive
-      </button>
+      <div className="grid gap-1">
+        <button
+          type="button"
+          ref={settingsButtonRef}
+          onClick={(event) => {
+            event.stopPropagation();
+            openSettingsMenu();
+          }}
+          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+        >
+          Settings
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setDarkMode((prev) => !prev);
+            closeOptionsMenu();
+          }}
+          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+        >
+          {darkMode ? "Switch to Light" : "Switch to Dark"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setArchivePanelOpen(true);
+            closeOptionsMenu();
+          }}
+          className={`w-full rounded-md border px-2 py-1.5 text-left text-sm font-medium transition ${darkMode ? "border-[#423865] bg-[#2f2640] text-slate-100 hover:bg-[#3b315a]" : "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"}`}
+        >
+          Archive
+        </button>
+      </div>
     </div>
   );
 }

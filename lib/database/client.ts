@@ -15,6 +15,12 @@ function createMissingSupabaseClient(): SupabaseClient {
     signInWithPassword: async () => {
       throw missingEnvError;
     },
+    resetPasswordForEmail: async () => {
+      throw missingEnvError;
+    },
+    updateUser: async () => {
+      throw missingEnvError;
+    },
     signOut: async () => {
       throw missingEnvError;
     },
