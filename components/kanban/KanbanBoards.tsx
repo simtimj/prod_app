@@ -65,7 +65,7 @@ const ROLLING_PAST_DAYS = 14;
 const ROLLING_FUTURE_DAYS = 14;
 const ROLLING_EXTENSION_DAYS = 7;
 const ROLLING_EDGE_THRESHOLD_DAYS = 3;
-const DEFAULT_RETURN_TO_TODAY_ON_FOCUS = true;
+const DEFAULT_RETURN_TO_TODAY_ON_FOCUS = false;
 
 function createTaskId(): string {
   const cryptoApi = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
@@ -170,6 +170,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   const preferredDateKeyRef = useRef<string | null>(null);
   const pendingScrollToDateKeyRef = useRef<string | null>(null);
   const suppressSelectUntilRef = useRef(0);
+  const snapAfterScrollTimeoutRef = useRef<number | null>(null);
   const dragRef = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false });
   const [dragging, setDragging] = useState(false);
 
@@ -722,10 +723,6 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     };
 
     const alignOnReturn = () => {
-      if (returnToTodayOnFocus) {
-        goToday();
-        return;
-      }
       restoreSelectedDayScroll();
     };
 
@@ -743,7 +740,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
       window.removeEventListener("focus", alignOnReturn);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [goToday, returnToTodayOnFocus, selectedIndex, today]);
+  }, [selectedIndex, today]);
 
   useEffect(() => {
     if (activeAddIndex !== null && addInputRef.current) {
@@ -1048,6 +1045,36 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
 
     return nearestIndex;
   }, [selectedIndex]);
+
+  const clearSnapAfterScrollTimeout = useCallback(() => {
+    if (snapAfterScrollTimeoutRef.current !== null) {
+      window.clearTimeout(snapAfterScrollTimeoutRef.current);
+      snapAfterScrollTimeoutRef.current = null;
+    }
+  }, []);
+
+  const snapNearestDayToStart = useCallback(() => {
+    if (pendingScrollToDateKeyRef.current) return;
+    if (dragRef.current.isDown) return;
+
+    const nearestIndex = getNearestVisibleDayIndex();
+    scrollDayToStart(nearestIndex);
+  }, [getNearestVisibleDayIndex]);
+
+  const scheduleSnapNearestDayToStart = useCallback(() => {
+    if (typeof window === "undefined") return;
+    clearSnapAfterScrollTimeout();
+    snapAfterScrollTimeoutRef.current = window.setTimeout(() => {
+      snapAfterScrollTimeoutRef.current = null;
+      snapNearestDayToStart();
+    }, 120);
+  }, [clearSnapAfterScrollTimeout, snapNearestDayToStart]);
+
+  useEffect(() => {
+    return () => {
+      clearSnapAfterScrollTimeout();
+    };
+  }, [clearSnapAfterScrollTimeout]);
 
   const openAuthDialog = (nextAction: AuthAction) => {
     setAuthAction(nextAction);
@@ -2264,23 +2291,21 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         (e.target as Element).releasePointerCapture?.(e.pointerId);
       } catch {}
       maybeExpandDaysForScrollPosition();
+      scheduleSnapNearestDayToStart();
       return;
     }
 
-    const nearestIndex = getNearestVisibleDayIndex();
-    if (nearestIndex !== selectedIndex) {
-      ignoreScrollRef.current = true;
-      setSelectedIndex(nearestIndex);
-    }
     try {
       (e.target as Element).releasePointerCapture?.(e.pointerId);
     } catch {}
     maybeExpandDaysForScrollPosition();
+    scheduleSnapNearestDayToStart();
   };
 
   const handleBoardScroll = () => {
     if (dragRef.current.isDown) return;
     maybeExpandDaysForScrollPosition();
+    scheduleSnapNearestDayToStart();
   };
 
   const activeTask = expandedTask
@@ -4449,7 +4474,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
   return (
     <div className="space-y-0">
       <header className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-3 py-2 shadow-sm transition ${darkMode ? "border-[#372a5d] bg-[#171021] shadow-[#241b35]/30" : "border-slate-200 bg-white shadow-slate-200/50"}`}>
-        <div className="flex flex-1 min-w-0 items-center gap-3">
+        <div className="flex flex-1 min-w-0 items-center gap-2">
           <div ref={searchPanelRef} className="relative w-[20rem]">
             <label htmlFor="kanban-search" className="sr-only">Search</label>
             <input
@@ -4474,37 +4499,35 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
           <button
             type="button"
             onClick={goToday}
-            className={`rounded-2xl border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 hover:bg-[#332c5a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+            className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? "border-[#372a5d] bg-[#241c3c] text-slate-100 hover:bg-[#332c5a]" : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
           >
             Go to Today
           </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              closeOptionsMenu();
+              setViewsOpen((v) => !v);
+            }}
+            onDragOver={(event) => {
+              if (!isDayTaskDragActive) return;
+              event.preventDefault();
+              setViewsOpen(true);
+            }}
+            onDragEnter={(event) => {
+              if (!isDayTaskDragActive) return;
+              event.preventDefault();
+              setViewsOpen(true);
+            }}
+            aria-expanded={viewsOpen}
+            aria-label="Lists"
+            className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
+          >
+            {isDayTaskDragActive && !viewsOpen ? "Drag Here for Lists" : "Lists"}
+          </button>
         </div>
         <div ref={topMenusRef} className="relative z-[110] flex items-center gap-2">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                closeOptionsMenu();
-                setViewsOpen((v) => !v);
-              }}
-              onDragOver={(event) => {
-                if (!isDayTaskDragActive) return;
-                event.preventDefault();
-                setViewsOpen(true);
-              }}
-              onDragEnter={(event) => {
-                if (!isDayTaskDragActive) return;
-                event.preventDefault();
-                setViewsOpen(true);
-              }}
-              aria-expanded={viewsOpen}
-              aria-label="Lists"
-              className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:brightness-90 ${darkMode ? 'border-[#423865] text-slate-100 bg-[#2f2640] hover:bg-[#3b315a]' : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-100'}`}
-            >
-              {isDayTaskDragActive && !viewsOpen ? "Drag Here for Lists" : "Lists"}
-            </button>
-          </div>
           <div className="relative">
             <button
               ref={(node) => {
@@ -4548,7 +4571,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}
-            className={`kanban-scroll flex overflow-x-auto px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide min-h-screen transition-[padding-right] duration-300 ${viewsOpen ? "pr-[23rem]" : ""} ${
+            className={`kanban-scroll flex overflow-x-auto touch-pan-x px-5 py-4 sm:px-4 lg:px-4 scrollbar-hide min-h-screen transition-[padding-right] duration-300 ${viewsOpen ? "pr-[23rem]" : ""} ${
               dragging ? "cursor-grabbing" : "cursor-grab"
             }`}
             style={viewsOpen ? { paddingRight: `${openListPanelWidthPx}px` } : undefined}

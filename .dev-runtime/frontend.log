@@ -54,3 +54,119 @@
     at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)
 [browser] Invalid auth token. 
     at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)
+ GET / 200 in 767ms (next.js: 203ms, application-code: 564ms)
+[browser] Could not load tasks. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4366:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4366:25)
+ GET / 200 in 75ms (next.js: 6ms, application-code: 69ms)
+✓ Compiled in 1223ms
+✓ Compiled in 906ms
+✓ Compiled in 271ms
+[browser] The final argument passed to useEffect changed size between renders. The order and size of this array must remain constant.
+
+Previous: [()=>{
+            const now = new Date();
+            const todayDateKey = toDateKey(now);
+            ignoreScrollRef.current = false;
+            preferredDateKeyRef.current = todayDateKey;
+            if ("TURBOPACK compile-time truthy", 1) {
+                window.localStorage.setItem(LAST_VIEWED_DATE_STORAGE_KEY, todayDateKey);
+            }
+            let nextDays = days;
+            let nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+            if (nextTodayIndex < 0) {
+                if (nextDays.length === 0) {
+                    nextDays = buildRollingDayColumns(now);
+                    nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+                }
+                while(nextTodayIndex < 0){
+                    const firstDate = nextDays[0]?.date;
+                    const lastDate = nextDays[nextDays.length - 1]?.date;
+                    if (!firstDate || !lastDate) {
+                        nextDays = buildRollingDayColumns(now);
+                        nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+                        break;
+                    }
+                    if (now < firstDate) {
+                        nextDays = [
+                            ...buildAdjacentDayColumns(firstDate, ROLLING_EXTENSION_DAYS, "past"),
+                            ...nextDays
+                        ];
+                    } else {
+                        nextDays = [
+                            ...nextDays,
+                            ...buildAdjacentDayColumns(lastDate, ROLLING_EXTENSION_DAYS, "future")
+                        ];
+                    }
+                    nextTodayIndex = findDayIndexByDateKey(nextDays, todayDateKey);
+                }
+            }
+            if (nextDays !== days) {
+                pendingScrollToDateKeyRef.current = todayDateKey;
+                setDays(nextDays);
+                setToday(now);
+                return;
+            }
+            if (nextTodayIndex >= 0) {
+                pendingScrollToDateKeyRef.current = null;
+                const alignTodayWhenReady = {
+                    "KanbanBoards.useCallback[goToday].alignTodayWhenReady": ()=>{
+                        let frameId = 0;
+                        const align = {
+                            "KanbanBoards.useCallback[goToday].alignTodayWhenReady.align": ()=>{
+                                if (!scrollRef.current || !dayRefs.current[nextTodayIndex]) {
+                                    frameId = requestAnimationFrame(align);
+                                    return;
+                                }
+                                scrollDayToStart(nextTodayIndex, false);
+                            }
+                        }["KanbanBoards.useCallback[goToday].alignTodayWhenReady.align"];
+                        frameId = requestAnimationFrame(align);
+                        return ({
+                            "KanbanBoards.useCallback[goToday].alignTodayWhenReady": ()=>{
+                                if (frameId) {
+                                    cancelAnimationFrame(frameId);
+                                }
+                            }
+                        })["KanbanBoards.useCallback[goToday].alignTodayWhenReady"];
+                    }
+                }["KanbanBoards.useCallback[goToday].alignTodayWhenReady"];
+                if (selectedIndex !== nextTodayIndex) {
+                    setSelectedIndex(nextTodayIndex);
+                }
+                alignTodayWhenReady();
+            }
+            setToday(now);
+        }, false, 61, Mon Aug 31 2026 21:07:56 GMT-0700 (Pacific Daylight Time)]
+Incoming: [61, Mon Aug 31 2026 21:07:56 GMT-0700 (Pacific Daylight Time)] 
+    at areHookInputsEqual (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4604:56)
+    at updateEffectImpl (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:5300:50)
+    at Object.useEffect (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:15568:13)
+    at exports.useEffect (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:1722:36)
+    at KanbanBoards (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:706:180)
+    at Object.react_stack_bottom_frame (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:15037:24)
+    at renderWithHooksAgain (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4675:24)
+    at renderWithHooks (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4626:28)
+    at updateFunctionComponent (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6081:21)
+    at beginWork (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6691:24)
+    at runWithFiberInDEV (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+    at performUnitOfWork (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9555:97)
+    at workLoopSync (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9449:40)
+    at renderRootSync (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9433:13)
+    at performWorkOnRoot (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9061:186)
+    at performSyncWorkOnRoot (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:10263:9)
+    at flushSyncWorkAcrossRoots_impl (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:10179:316)
+    at flushSyncWork$1 (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9230:86)
+    at scheduleRefresh (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:299:13)
+    at S.scheduleRefresh (chrome-extension://fmkadmapgofadopljbjfkapdkoienihi/build/installHook.js:1:86461)
+    at <unknown> (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:391:33)
+    at Set.forEach (<anonymous>)
+    at Object.performReactRefresh (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:384:38)
+    at applyUpdate (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:878:31)
+    at <unknown> (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:886:13) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4604:56)
+✓ Compiled in 285ms
+✓ Compiled in 273ms
+✓ Compiled in 726ms
+[browser] Could not load tasks. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1369:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1369:25)
+✓ Compiled in 239ms
+✓ Compiled in 414ms

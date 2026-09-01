@@ -698,7 +698,7 @@ export default function KanbanColumn({
       }}
       role="button"
       tabIndex={0}
-      className={`min-w-[20rem] shrink-0 rounded-xl border p-3 transition duration-300 cursor-pointer ${
+      className={`min-w-[20rem] shrink-0 snap-start scroll-ml-6 rounded-xl border p-3 transition duration-300 cursor-pointer ${
         isSelected
           ? darkMode
             ? "border-[#483d6d] shadow-[0_12px_60px_-18px_rgba(46,36,76,0.25)]"
