@@ -50,3 +50,7 @@
 [browser] Could not load tasks. 
     at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1311:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1311:25)
  GET / 200 in 234ms (next.js: 92ms, application-code: 142ms)
+[browser] Invalid auth token. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)
+[browser] Invalid auth token. 
+    at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js:4295:25)

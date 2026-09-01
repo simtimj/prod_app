@@ -67,6 +67,30 @@ const ROLLING_EXTENSION_DAYS = 7;
 const ROLLING_EDGE_THRESHOLD_DAYS = 3;
 const DEFAULT_RETURN_TO_TODAY_ON_FOCUS = true;
 
+function createTaskId(): string {
+  const cryptoApi = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+
+  if (cryptoApi && typeof cryptoApi.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    cryptoApi.getRandomValues(bytes);
+
+    // RFC 4122 v4 bits: version (0100) and variant (10xx).
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  const randomPart = Math.random().toString(16).slice(2);
+  const timePart = Date.now().toString(16);
+  return `fallback-${timePart}-${randomPart}`;
+}
+
 function clampListPanelWidth(width: number): number {
   return Math.max(MIN_LIST_PANEL_WIDTH_PX, Math.min(MAX_LIST_PANEL_WIDTH_PX, width));
 }
@@ -1393,7 +1417,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     insertTaskIntoDay({
       dayIndex: index,
       task: {
-        id: crypto.randomUUID(),
+        id: createTaskId(),
         userId: currentUserId ?? undefined,
         title: title.trim(),
         completed: false,
@@ -1499,7 +1523,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     insertTaskIntoDay({
       dayIndex: smartTaskPreview.dayIndex,
       task: {
-        id: crypto.randomUUID(),
+        id: createTaskId(),
         userId: currentUserId ?? undefined,
         title: smartTaskPreview.draft.title.trim(),
         completed: false,
@@ -2033,7 +2057,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const dueDate = getDayDateKeyForColumn(toDay);
     const nextTask: Task = {
       ...sourceTask,
-      id: crypto.randomUUID(),
+      id: createTaskId(),
       userId: currentUserId ?? sourceTask.userId,
       completed: false,
       dueDate,
@@ -2607,7 +2631,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     const name = newListName.trim();
     if (!name) return;
 
-    const id = `list-${crypto.randomUUID()}`;
+    const id = `list-${createTaskId()}`;
     setSavedLists((current) => [...current, { id, name, tasks: [] }]);
     setActiveListId(id);
     setNewListName("");
@@ -2666,7 +2690,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
         targetList.tasks.map((task) => {
           const archivedTask: Task = {
             ...task,
-            id: task.id ?? crypto.randomUUID(),
+            id: task.id ?? createTaskId(),
             userId: currentUserId,
             createdAt: task.createdAt ?? archivedAt,
             updatedAt: archivedAt,
@@ -2847,7 +2871,7 @@ export default function KanbanBoards({ dayColors }: { dayColors?: Record<string,
     if (currentUserId) {
       const archivedTask: Task = {
         ...task,
-        id: task.id ?? crypto.randomUUID(),
+        id: task.id ?? createTaskId(),
         userId: currentUserId,
         createdAt: task.createdAt ?? archivedAt,
         updatedAt: archivedAt,

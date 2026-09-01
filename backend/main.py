@@ -16,7 +16,8 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from openai import APIError, OpenAI
+import httpx
+from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -35,6 +36,9 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
 MODEL_NAME = os.getenv("OPENAI_PARSE_TASK_MODEL", "gpt-4.1-mini")
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
+OPENAI_PARSE_MAX_RETRIES = int(os.getenv("OPENAI_PARSE_MAX_RETRIES", "2"))
+OPENAI_RETRY_BASE_SECONDS = float(os.getenv("OPENAI_RETRY_BASE_SECONDS", "0.6"))
 PARSE_MIN_INTERVAL_MS = 1800
 PARSE_MOCK_MIN_INTERVAL_MS = int(os.getenv("PARSE_MOCK_MIN_INTERVAL_MS", "0"))
 _recent_parse_by_client: dict[str, float] = {}
@@ -271,7 +275,20 @@ def get_openai_client() -> OpenAI:
 
     with _openai_client_lock:
         if _openai_client is None:
-            _openai_client = OpenAI(api_key=api_key)
+            openai_http_client = httpx.Client(
+                http2=False,
+                timeout=httpx.Timeout(
+                    timeout=OPENAI_TIMEOUT_SECONDS,
+                    connect=min(OPENAI_TIMEOUT_SECONDS, 10.0),
+                ),
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            )
+            _openai_client = OpenAI(
+                api_key=api_key,
+                max_retries=0,
+                timeout=OPENAI_TIMEOUT_SECONDS,
+                http_client=openai_http_client,
+            )
 
     return _openai_client
 
@@ -1139,37 +1156,91 @@ def parse_task(
 
     try:
         client = get_openai_client()
-        completion = client.responses.create(
-            model=MODEL_NAME,
-            input=[
-                {
-                    "role": "system",
-                    "content": [{"type": "input_text", "text": parse_task_system_prompt}],
-                },
-                {
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": user_prompt}],
-                },
-            ],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "parsed_task",
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "title": {"type": "string"},
-                            "dueDate": {"type": ["string", "null"]},
-                            "dueTime": {"type": ["string", "null"]},
-                            "description": {"type": ["string", "null"]},
+        completion = None
+        attempts = max(1, OPENAI_PARSE_MAX_RETRIES + 1)
+
+        for attempt in range(attempts):
+            try:
+                completion = client.responses.create(
+                    model=MODEL_NAME,
+                    input=[
+                        {
+                            "role": "system",
+                            "content": [{"type": "input_text", "text": parse_task_system_prompt}],
                         },
-                        "required": ["title", "dueDate", "dueTime", "description"],
+                        {
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": user_prompt}],
+                        },
+                    ],
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "parsed_task",
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "title": {"type": "string"},
+                                    "dueDate": {"type": ["string", "null"]},
+                                    "dueTime": {"type": ["string", "null"]},
+                                    "description": {"type": ["string", "null"]},
+                                },
+                                "required": ["title", "dueDate", "dueTime", "description"],
+                            },
+                            "strict": True,
+                        }
                     },
-                    "strict": True,
-                }
-            },
-        )
+                )
+                break
+            except (APIConnectionError, APITimeoutError, httpx.RemoteProtocolError, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                is_last_attempt = attempt >= attempts - 1
+                logger.warning(
+                    "OpenAI transport error during parse-task (%s/%s): %s",
+                    attempt + 1,
+                    attempts,
+                    exc.__class__.__name__,
+                )
+                if is_last_attempt:
+                    raise HTTPException(
+                        status_code=502,
+                        detail={
+                            "error": "OpenAI service temporarily unavailable. Please try again in a few seconds.",
+                            "retryAfterSeconds": 2,
+                        },
+                    ) from exc
+
+                backoff_seconds = OPENAI_RETRY_BASE_SECONDS * (2**attempt)
+                time.sleep(backoff_seconds)
+            except APIError as exc:
+                if exc.status_code == 429:
+                    raise HTTPException(
+                        status_code=429,
+                        detail={
+                            "error": "OpenAI rate limit reached. Please wait a few seconds and try again.",
+                            "retryAfterSeconds": 3,
+                        },
+                    ) from exc
+
+                is_retryable_server_error = exc.status_code is not None and exc.status_code >= 500
+                is_last_attempt = attempt >= attempts - 1
+                logger.warning(
+                    "OpenAI API error during parse-task (%s/%s): status=%s",
+                    attempt + 1,
+                    attempts,
+                    exc.status_code,
+                )
+                if is_retryable_server_error and not is_last_attempt:
+                    backoff_seconds = OPENAI_RETRY_BASE_SECONDS * (2**attempt)
+                    time.sleep(backoff_seconds)
+                    continue
+
+                status_code = 502 if is_retryable_server_error else 500
+                message = str(exc) or "OpenAI parse request failed."
+                raise HTTPException(status_code=status_code, detail=message) from exc
+
+        if completion is None:
+            raise HTTPException(status_code=502, detail="OpenAI parse request failed before completion.")
 
         json_text = completion.output_text
         if not json_text:
@@ -1177,18 +1248,11 @@ def parse_task(
 
         parsed = ModelParsedTask.model_validate_json(json_text)
         return normalize_model_result(parsed)
-    except APIError as exc:
-        if exc.status_code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "error": "OpenAI rate limit reached. Please wait a few seconds and try again.",
-                    "retryAfterSeconds": 3,
-                },
-            ) from exc
-
-        message = str(exc) or "OpenAI parse request failed."
-        raise HTTPException(status_code=500, detail=message) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected parse-task failure: %s", exc.__class__.__name__)
+        raise HTTPException(status_code=500, detail="Unexpected error while parsing task.") from exc
 
 
 @app.post("/parse-task/mock", response_model=ParseTaskResponse)
