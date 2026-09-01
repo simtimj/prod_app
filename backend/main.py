@@ -1239,11 +1239,35 @@ def parse_task(
                 status_code = 502 if is_retryable_server_error else 500
                 message = str(exc) or "OpenAI parse request failed."
                 raise HTTPException(status_code=status_code, detail=message) from exc
+            except Exception as exc:
+                is_last_attempt = attempt >= attempts - 1
+                logger.warning(
+                    "Unexpected OpenAI client error during parse-task (%s/%s): %s",
+                    attempt + 1,
+                    attempts,
+                    exc.__class__.__name__,
+                )
+                if is_last_attempt:
+                    raise HTTPException(
+                        status_code=502,
+                        detail={
+                            "error": "OpenAI parse request failed unexpectedly. Please try again.",
+                            "retryAfterSeconds": 2,
+                        },
+                    ) from exc
+
+                backoff_seconds = OPENAI_RETRY_BASE_SECONDS * (2**attempt)
+                time.sleep(backoff_seconds)
 
         if completion is None:
             raise HTTPException(status_code=502, detail="OpenAI parse request failed before completion.")
 
-        json_text = completion.output_text
+        try:
+            json_text = completion.output_text
+        except Exception as exc:
+            logger.warning("OpenAI parse response extraction failed: %s", exc.__class__.__name__)
+            raise HTTPException(status_code=502, detail="OpenAI response format was invalid.") from exc
+
         if not json_text:
             raise HTTPException(status_code=502, detail="No parse result returned by model.")
 
@@ -1258,7 +1282,13 @@ def parse_task(
         raise
     except Exception as exc:
         logger.exception("Unexpected parse-task failure: %s", exc.__class__.__name__)
-        raise HTTPException(status_code=500, detail="Unexpected error while parsing task.") from exc
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "Unexpected parse integration error.",
+                "code": exc.__class__.__name__,
+            },
+        ) from exc
 
 
 @app.post("/parse-task/mock", response_model=ParseTaskResponse)

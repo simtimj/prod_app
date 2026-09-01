@@ -253,6 +253,9 @@ export default function KanbanColumn({
                 ref={addInputRef}
                 value={newTaskInput}
                 onChange={(event) => setNewTaskInput(event.target.value)}
+                onPointerDown={(event) => event.stopPropagation()}
+                onPointerMove={(event) => event.stopPropagation()}
+                onPointerUp={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   event.stopPropagation();
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -263,14 +266,6 @@ export default function KanbanColumn({
                     setNewTaskInput("");
                     setActiveAddIndex(null);
                   }
-                }}
-                onBlur={(event) => {
-                  const nextFocused = event.relatedTarget as Node | null;
-                  if (nextFocused && event.currentTarget.parentElement?.contains(nextFocused)) {
-                    return;
-                  }
-                  setNewTaskInput("");
-                  setActiveAddIndex(null);
                 }}
                 rows={3}
                 placeholder="New task... (Enter to save, Shift+Enter for newline)"
@@ -626,6 +621,9 @@ export default function KanbanColumn({
           ref={addInputRef}
           value={newTaskInput}
           onChange={(event) => setNewTaskInput(event.target.value)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerMove={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
             event.stopPropagation();
             if (event.key === "Enter" && !event.shiftKey) {
@@ -636,14 +634,6 @@ export default function KanbanColumn({
               setNewTaskInput("");
               setActiveAddIndex(null);
             }
-          }}
-          onBlur={(event) => {
-            const nextFocused = event.relatedTarget as Node | null;
-            if (nextFocused && event.currentTarget.parentElement?.contains(nextFocused)) {
-              return;
-            }
-            setNewTaskInput("");
-            setActiveAddIndex(null);
           }}
           rows={3}
           placeholder="New task... (Enter to save, Shift+Enter for newline)"

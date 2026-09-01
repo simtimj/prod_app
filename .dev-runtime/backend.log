@@ -40,3 +40,19 @@ INFO:     Finished server process [11959]
 INFO:     Started server process [12718]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12718]
+INFO:     Started server process [16836]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [16836]
+INFO:     Started server process [17000]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
