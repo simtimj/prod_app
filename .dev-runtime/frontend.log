@@ -170,3 +170,20 @@ Incoming: [61, Mon Aug 31 2026 21:07:56 GMT-0700 (Pacific Daylight Time)]
     at KanbanBoards.useCallback[loadTasksForUser] (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1369:25) (file:///Users/juliussimtim/Desktop/code/personal apps/prod_app/.next/dev/static/chunks/_1-lggoc._.js?id=%255Bproject%255D%252Fcomponents%252Fkanban%252FKanbanBoards.tsx+%255Bapp-client%255D+%2528ecmascript%2529:1369:25)
 ✓ Compiled in 239ms
 ✓ Compiled in 414ms
+ GET / 200 in 209ms (next.js: 36ms, application-code: 173ms)
+ GET / 200 in 68ms (next.js: 4ms, application-code: 64ms)
+ GET / 200 in 134ms (next.js: 37ms, application-code: 96ms)
+⚠ Blocked cross-origin request to Next.js dev resource /_next/webpack-hmr from "10.0.0.198".
+Cross-origin access to Next.js dev resources is blocked by default for safety.
+
+To allow this host in development, add it to "allowedDevOrigins" in next.config.js and restart the dev server:
+
+// next.config.js
+module.exports = {
+  allowedDevOrigins: ['10.0.0.198'],
+}
+
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ GET / 200 in 52ms (next.js: 3ms, application-code: 49ms)
+ GET / 200 in 56ms (next.js: 5ms, application-code: 51ms)
+[?25h
