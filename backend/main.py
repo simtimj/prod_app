@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 import httpx
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from supabase import Client, create_client
 
 SERVICE_DIR = Path(__file__).resolve().parent
@@ -938,13 +938,13 @@ def normalize_model_result(value: ModelParsedTask) -> ParseTaskResponse:
     normalized_description = (value.description or "").strip()
 
     if not normalized_title:
-        raise HTTPException(status_code=500, detail="Parsed title is empty.")
+        raise HTTPException(status_code=502, detail="Parsed title is empty.")
 
     if normalized_due_date and not is_real_calendar_date(normalized_due_date):
-        raise HTTPException(status_code=500, detail="Parsed dueDate is invalid. Expected a real YYYY-MM-DD date.")
+        raise HTTPException(status_code=502, detail="Parsed dueDate is invalid. Expected a real YYYY-MM-DD date.")
 
     if normalized_due_time and not is_valid_time(normalized_due_time):
-        raise HTTPException(status_code=500, detail="Parsed dueTime is invalid. Expected HH:MM (24-hour).")
+        raise HTTPException(status_code=502, detail="Parsed dueTime is invalid. Expected HH:MM (24-hour).")
 
     return ParseTaskResponse(
         draft=ParsedTaskDraft(
@@ -1213,7 +1213,8 @@ def parse_task(
                 backoff_seconds = OPENAI_RETRY_BASE_SECONDS * (2**attempt)
                 time.sleep(backoff_seconds)
             except APIError as exc:
-                if exc.status_code == 429:
+                status_code = getattr(exc, "status_code", None)
+                if status_code == 429:
                     raise HTTPException(
                         status_code=429,
                         detail={
@@ -1222,13 +1223,13 @@ def parse_task(
                         },
                     ) from exc
 
-                is_retryable_server_error = exc.status_code is not None and exc.status_code >= 500
+                is_retryable_server_error = status_code is not None and status_code >= 500
                 is_last_attempt = attempt >= attempts - 1
                 logger.warning(
                     "OpenAI API error during parse-task (%s/%s): status=%s",
                     attempt + 1,
                     attempts,
-                    exc.status_code,
+                    status_code,
                 )
                 if is_retryable_server_error and not is_last_attempt:
                     backoff_seconds = OPENAI_RETRY_BASE_SECONDS * (2**attempt)
@@ -1246,7 +1247,12 @@ def parse_task(
         if not json_text:
             raise HTTPException(status_code=502, detail="No parse result returned by model.")
 
-        parsed = ModelParsedTask.model_validate_json(json_text)
+        try:
+            parsed = ModelParsedTask.model_validate_json(json_text)
+        except ValidationError as exc:
+            logger.warning("OpenAI parse payload validation failed: %s", exc.__class__.__name__)
+            raise HTTPException(status_code=502, detail="Parser returned an invalid structured response.") from exc
+
         return normalize_model_result(parsed)
     except HTTPException:
         raise
