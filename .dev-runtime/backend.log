@@ -64,3 +64,11 @@ INFO:     Finished server process [17000]
 INFO:     Started server process [25284]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [25284]
+INFO:     Started server process [26063]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
