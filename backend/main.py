@@ -1242,12 +1242,14 @@ def parse_task(
             except Exception as exc:
                 is_last_attempt = attempt >= attempts - 1
                 logger.warning(
-                    "Unexpected OpenAI client error during parse-task (%s/%s): %s",
+                    "Unexpected OpenAI client error during parse-task (%s/%s): %s: %s",
                     attempt + 1,
                     attempts,
                     exc.__class__.__name__,
+                    str(exc),
                 )
                 if is_last_attempt:
+                    logger.exception("OpenAI parse final unexpected failure")
                     raise HTTPException(
                         status_code=502,
                         detail={
