@@ -15,7 +15,7 @@ const users = new SharedArray('seeded-users', () => {
   return parsed;
 });
 
-const baseUrl = (__ENV.BOARD_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+const baseUrl = (__ENV.BOARD_BASE_URL || 'http://productivity-backend-alb-782333318.us-east-1.elb.amazonaws.com').replace(/\/$/, '');
 // TARGET_RPS is API-layer requests per second across /tasks + /lists + /settings.
 const targetApiRps = Number(__ENV.TARGET_RPS || __ENV.BOARD_TARGET_RPS || '20');
 const iterationRps = Math.max(1, Math.ceil(targetApiRps / REQUESTS_PER_ITERATION));

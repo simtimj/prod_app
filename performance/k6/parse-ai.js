@@ -14,8 +14,8 @@ const prompts = new SharedArray('ai-prompts', () => {
   return parsed.map((prompt) => String(prompt).trim()).filter(Boolean);
 });
 
-const baseUrl = (__ENV.PARSE_AI_BASE_URL || __ENV.FASTAPI_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
-const parsePath = (__ENV.PARSE_AI_PATH || '/api/parse-task/mock').trim() || '/api/parse-task/mock';
+const baseUrl = (__ENV.PARSE_AI_BASE_URL || __ENV.FASTAPI_BASE_URL || 'http://productivity-backend-alb-782333318.us-east-1.elb.amazonaws.com').replace(/\/+$/, '');
+const parsePath = (__ENV.PARSE_AI_PATH || '/parse-task/mock').trim() || '/parse-task/mock';
 const parseUrl = `${baseUrl}${parsePath.startsWith('/') ? parsePath : `/${parsePath}`}`;
 const targetRps = Number(__ENV.TARGET_RPS || __ENV.PARSE_AI_TARGET_RPS || '40');
 const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.PARSE_AI_PREALLOCATED_VUS || '200');

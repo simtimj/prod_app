@@ -16,8 +16,8 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-PARSE_AI_BASE_URL="${PARSE_AI_BASE_URL:-http://127.0.0.1:3000}"
-PARSE_AI_PATH="${PARSE_AI_PATH:-/api/parse-task/mock}"
+PARSE_AI_BASE_URL="${PARSE_AI_BASE_URL:-http://productivity-backend-alb-782333318.us-east-1.elb.amazonaws.com}"
+PARSE_AI_PATH="${PARSE_AI_PATH:-/parse-task/mock}"
 TARGET_RPS="${TARGET_RPS:-40}"
 PREALLOCATED_VUS="${PREALLOCATED_VUS:-200}"
 MAX_VUS="${MAX_VUS:-2000}"
