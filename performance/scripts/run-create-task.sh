@@ -107,7 +107,7 @@ fi
 
 export ACCESS_TOKEN
 
-CREATE_TASK_BASE_URL="${CREATE_TASK_BASE_URL:-http://productivity-backend-alb-782333318.us-east-1.elb.amazonaws.com}"
+CREATE_TASK_BASE_URL="${CREATE_TASK_BASE_URL:-${FASTAPI_BASE_URL:-http://productivity-backend-alb-782333318.us-east-1.elb.amazonaws.com}}"
 TARGET_RPS="${TARGET_RPS:-50}"
 PREALLOCATED_VUS="${PREALLOCATED_VUS:-200}"
 MAX_VUS="${MAX_VUS:-2000}"
