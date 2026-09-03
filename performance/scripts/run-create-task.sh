@@ -17,6 +17,11 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required but was not found in PATH."
+  exit 1
+fi
+
 if [[ -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -41,18 +46,40 @@ fi
 if [[ -z "${ACCESS_TOKEN:-}" ]]; then
   if [[ -n "${SUPABASE_TEST_EMAIL:-}" && -n "${SUPABASE_TEST_PASSWORD:-}" && -n "${SUPABASE_URL:-}" && -n "${SUPABASE_ANON_KEY:-}" ]]; then
     auth_url="${SUPABASE_URL%/}/auth/v1/token?grant_type=password"
+    auth_payload="$(python3 -c 'import json, os; print(json.dumps({"email": os.environ.get("SUPABASE_TEST_EMAIL", ""), "password": os.environ.get("SUPABASE_TEST_PASSWORD", "")}))')"
 
     auth_response="$(curl -sS -X POST "${auth_url}" \
       -H "apikey: ${SUPABASE_ANON_KEY}" \
       -H "Content-Type: application/json" \
-      -d "{\"email\":\"${SUPABASE_TEST_EMAIL}\",\"password\":\"${SUPABASE_TEST_PASSWORD}\"}" \
+      -d "${auth_payload}" \
       || true)"
 
-    ACCESS_TOKEN="$(printf '%s' "${auth_response}" | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    ACCESS_TOKEN="$(printf '%s' "${auth_response}" | python3 -c 'import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit(0)
+print(data.get("access_token", ""))')"
 
     if [[ -z "${ACCESS_TOKEN:-}" ]]; then
       echo "Failed to mint ACCESS_TOKEN from SUPABASE_TEST_EMAIL/SUPABASE_TEST_PASSWORD."
-      echo "Supabase response: ${auth_response}"
+      error_message="$(printf '%s' "${auth_response}" | python3 -c 'import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit(0)
+for key in ("error_description", "msg", "message", "error"):
+    value = data.get(key)
+    if isinstance(value, str) and value.strip():
+        print(value.strip())
+        break')"
+      if [[ -n "${error_message}" ]]; then
+        echo "Supabase auth error: ${error_message}"
+      else
+        echo "Supabase response: ${auth_response}"
+      fi
       exit 1
     fi
   fi
