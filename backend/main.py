@@ -563,6 +563,15 @@ def validate_saved_list_task_payload(task: SavedListTaskPayload) -> None:
             raise HTTPException(status_code=400, detail="Saved list recurrence_month_days values must be between 1 and 31.")
 
 
+def is_unique_constraint_violation(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "duplicate key value violates unique constraint" in message
+        or "duplicate key" in message
+        or "23505" in message
+    )
+
+
 def ensure_backlog_list(client: Client, user_id: str) -> None:
     existing = (
         client.table("saved_lists")
@@ -846,6 +855,13 @@ def upsert_task(
         "updated_at": task.updated_at or current_time,
     }
 
+    try:
+        client.table("tasks").insert(payload).execute()
+        return OkResponse()
+    except Exception as insert_exc:
+        if not is_unique_constraint_violation(insert_exc):
+            raise
+
     existing_task_result = (
         client.table("tasks")
         .select("id, user_id, created_at")
@@ -855,19 +871,18 @@ def upsert_task(
     )
     existing_task_row = (existing_task_result.data or [None])[0]
 
-    if existing_task_row:
-        existing_owner = str(existing_task_row.get("user_id")) if isinstance(existing_task_row, dict) else None
-        if existing_owner != user_id:
-            raise HTTPException(status_code=403, detail="Task id already exists for another user.")
+    if not existing_task_row:
+        raise HTTPException(status_code=409, detail="Task id conflict. Please retry.")
 
-        persisted_created_at = existing_task_row.get("created_at") if isinstance(existing_task_row, dict) else None
-        if persisted_created_at:
-            payload["created_at"] = persisted_created_at
+    existing_owner = str(existing_task_row.get("user_id")) if isinstance(existing_task_row, dict) else None
+    if existing_owner != user_id:
+        raise HTTPException(status_code=403, detail="Task id already exists for another user.")
 
-        client.table("tasks").update(payload).eq("id", task.id).eq("user_id", user_id).execute()
-        return OkResponse()
+    persisted_created_at = existing_task_row.get("created_at") if isinstance(existing_task_row, dict) else None
+    if persisted_created_at:
+        payload["created_at"] = persisted_created_at
 
-    client.table("tasks").insert(payload).execute()
+    client.table("tasks").update(payload).eq("id", task.id).eq("user_id", user_id).execute()
     return OkResponse()
 
 

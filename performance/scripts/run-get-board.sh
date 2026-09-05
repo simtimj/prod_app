@@ -48,7 +48,7 @@ if [[ "${preflight_http_code}" == "000" ]]; then
 fi
 
 echo "Preflight connectivity check passed (HTTP ${preflight_http_code})"
-echo "TARGET_RPS represents total API-layer requests/sec across /tasks, /lists, and /settings."
+echo "TARGET_RPS represents requests/sec against /tasks for the default get-board benchmark."
 
 mkdir -p "${RESULTS_DIR}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"

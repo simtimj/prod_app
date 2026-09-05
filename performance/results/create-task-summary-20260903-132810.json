@@ -1,0 +1,144 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "status is 200": {
+                    "id": "6210a8cd14cd70477eba5c5e4cb3fb5f",
+                    "passes": 300,
+                    "fails": 0,
+                    "name": "status is 200",
+                    "path": "::status is 200"
+                },
+                "response ok=true": {
+                    "name": "response ok=true",
+                    "path": "::response ok=true",
+                    "id": "2cfaf76fac61488ea3cdee4b1b649a59",
+                    "passes": 300,
+                    "fails": 0
+                }
+            }
+    },
+    "metrics": {
+        "http_req_duration": {
+            "med": 158.6955,
+            "max": 606.273,
+            "p(90)": 212.61440000000002,
+            "p(95)": 243.86135000000002,
+            "avg": 173.78960666666666,
+            "min": 141.965,
+            "thresholds": {
+                "p(95)<300": false,
+                "p(99)<700": false
+            }
+        },
+        "http_req_waiting": {
+            "p(95)": 243.68135000000004,
+            "avg": 173.36846333333352,
+            "min": 141.825,
+            "med": 158.3985,
+            "max": 606.005,
+            "p(90)": 212.226
+        },
+        "data_sent": {
+            "count": 431700,
+            "rate": 14362.669754479857
+        },
+        "data_received": {
+            "rate": 1596.961195772604,
+            "count": 48000
+        },
+        "http_req_connecting": {
+            "p(90)": 86.3946,
+            "p(95)": 92.4195,
+            "avg": 54.92084666666667,
+            "min": 0,
+            "med": 78.53299999999999,
+            "max": 143.38
+        },
+        "iteration_duration": {
+            "avg": 229.31832987999994,
+            "min": 142.389325,
+            "med": 235.05124,
+            "max": 701.036484,
+            "p(90)": 292.02491030000004,
+            "p(95)": 326.81567510000013
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 300,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "iterations": {
+            "count": 300,
+            "rate": 9.981007473578776
+        },
+        "vus_max": {
+            "min": 200,
+            "max": 200,
+            "value": 200
+        },
+        "checks": {
+            "passes": 600,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.95": false
+            },
+            "value": 1
+        },
+        "http_req_duration{expected_response:true}": {
+            "min": 141.965,
+            "med": 158.6955,
+            "max": 606.273,
+            "p(90)": 212.61440000000002,
+            "p(95)": 243.86135000000002,
+            "avg": 173.78960666666666
+        },
+        "http_req_receiving": {
+            "avg": 0.26649,
+            "min": 0.038,
+            "med": 0.08,
+            "max": 3.563,
+            "p(90)": 0.6381000000000004,
+            "p(95)": 1.1571
+        },
+        "http_req_blocked": {
+            "avg": 55.08818666666711,
+            "min": 0.004,
+            "med": 78.77350000000001,
+            "max": 143.462,
+            "p(90)": 86.83690000000001,
+            "p(95)": 92.57080000000002
+        },
+        "http_reqs": {
+            "count": 300,
+            "rate": 9.981007473578776
+        },
+        "http_req_sending": {
+            "min": 0.018,
+            "med": 0.086,
+            "max": 13.783,
+            "p(90)": 0.1471,
+            "p(95)": 0.17830000000000007,
+            "avg": 0.1546533333333333
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 3
+        }
+    }
+}

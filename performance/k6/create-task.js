@@ -4,7 +4,7 @@ import { check } from 'k6';
 const targetRps = Number(__ENV.TARGET_RPS || __ENV.CREATE_TASK_TARGET_RPS || '10');
 const preAllocatedVus = Number(__ENV.PREALLOCATED_VUS || __ENV.CREATE_TASK_PREALLOCATED_VUS || '200');
 const maxVus = Number(__ENV.MAX_VUS || __ENV.CREATE_TASK_MAX_VUS || '2000');
-const duration = __ENV.DURATION || '30s';
+const duration = __ENV.DURATION || '120s';
 const baseUrl = (__ENV.CREATE_TASK_BASE_URL || __ENV.FASTAPI_BASE_URL || 'http://productivity-backend-alb-782333318.us-east-1.elb.amazonaws.com').replace(/\/+$/, '');
 const p95Ms = Number(__ENV.P95_MS || '300');
 const p99Ms = Number(__ENV.P99_MS || '700');
@@ -15,9 +15,9 @@ export const options = {
   scenarios: {
     create_task_rps: {
       executor: 'constant-arrival-rate',
-      rate: targetRps,
+      rate: '100',
       timeUnit: '1s',
-      duration,
+      duration: '120s',
       preAllocatedVUs: preAllocatedVus,
       maxVUs: maxVus,
     },

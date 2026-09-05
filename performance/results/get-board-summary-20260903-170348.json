@@ -1,0 +1,172 @@
+{
+    "metrics": {
+        "http_req_tls_handshaking": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0
+        },
+        "http_req_duration": {
+            "min": 115.969,
+            "med": 198.347,
+            "max": 907.415,
+            "p(90)": 532.4632,
+            "p(95)": 702.9724,
+            "avg": 317.2170606060605,
+            "thresholds": {
+                "p(95)<300": true,
+                "p(99)<700": true
+            }
+        },
+        "vus_max": {
+            "value": 600,
+            "min": 600,
+            "max": 600
+        },
+        "http_req_duration{expected_response:true}": {
+            "min": 115.969,
+            "med": 198.347,
+            "max": 907.415,
+            "p(90)": 533.254,
+            "p(95)": 703.929,
+            "avg": 320.0472903225805
+        },
+        "http_reqs": {
+            "count": 33,
+            "rate": 9.508368372631228
+        },
+        "http_req_blocked": {
+            "avg": 177.09412121212114,
+            "min": 82.616,
+            "med": 184.656,
+            "max": 298.399,
+            "p(90)": 282.45000000000005,
+            "p(95)": 287.9532
+        },
+        "iteration_duration": {
+            "p(95)": 904.6019171999999,
+            "avg": 495.6660756666667,
+            "min": 207.484791,
+            "med": 459.350287,
+            "max": 1065.540045,
+            "p(90)": 819.4052382
+        },
+        "http_req_sending": {
+            "avg": 0.06533333333333334,
+            "min": 0.03,
+            "med": 0.063,
+            "max": 0.143,
+            "p(90)": 0.0876,
+            "p(95)": 0.10519999999999996
+        },
+        "http_req_failed": {
+            "fails": 31,
+            "passes": 2,
+            "thresholds": {
+                "rate<0.02": true
+            },
+            "value": 0.06060606060606061
+        },
+        "http_req_receiving": {
+            "max": 374.791,
+            "p(90)": 253.3404000000001,
+            "p(95)": 345.7116,
+            "avg": 60.08360606060605,
+            "min": 0.042,
+            "med": 0.081
+        },
+        "data_received": {
+            "count": 424433,
+            "rate": 122292.88828790879
+        },
+        "data_sent": {
+            "count": 33765,
+            "rate": 9728.789639451315
+        },
+        "vus": {
+            "value": 2,
+            "min": 2,
+            "max": 4
+        },
+        "iterations": {
+            "count": 33,
+            "rate": 9.508368372631228
+        },
+        "http_req_connecting": {
+            "max": 298.327,
+            "p(90)": 278.865,
+            "p(95)": 283.4988,
+            "avg": 176.62390909090905,
+            "min": 82.55,
+            "med": 184.574
+        },
+        "http_req_waiting": {
+            "avg": 257.0681212121212,
+            "min": 115.838,
+            "med": 198.228,
+            "max": 546.908,
+            "p(90)": 371.10200000000003,
+            "p(95)": 529.1368
+        },
+        "checks": {
+            "passes": 62,
+            "fails": 4,
+            "thresholds": {
+                "rate>0.95": true
+            },
+            "value": 0.9393939393939394
+        }
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "lists status 200": {
+                    "name": "lists status 200",
+                    "path": "::lists status 200",
+                    "id": "49c6f73916caa624eb023aaafe81a135",
+                    "passes": 8,
+                    "fails": 2
+                },
+                "lists payload has array": {
+                    "fails": 2,
+                    "name": "lists payload has array",
+                    "path": "::lists payload has array",
+                    "id": "557ae2be3ad190fe8f62249ce9e7d2cc",
+                    "passes": 8
+                },
+                "settings status 200": {
+                    "name": "settings status 200",
+                    "path": "::settings status 200",
+                    "id": "1c51c440f8714533eebcd2b5ccf28ad8",
+                    "passes": 10,
+                    "fails": 0
+                },
+                "settings payload has object": {
+                    "name": "settings payload has object",
+                    "path": "::settings payload has object",
+                    "id": "d09823330ca9116783991ef781ee4a0b",
+                    "passes": 10,
+                    "fails": 0
+                },
+                "tasks status 200": {
+                    "id": "e327e38bbf02bd94e2bf657a9792ac21",
+                    "passes": 13,
+                    "fails": 0,
+                    "name": "tasks status 200",
+                    "path": "::tasks status 200"
+                },
+                "tasks payload has array": {
+                    "name": "tasks payload has array",
+                    "path": "::tasks payload has array",
+                    "id": "81503fa8a8d6a48f45483f9f6943d743",
+                    "passes": 13,
+                    "fails": 0
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}
