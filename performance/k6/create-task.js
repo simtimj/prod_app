@@ -15,9 +15,9 @@ export const options = {
   scenarios: {
     create_task_rps: {
       executor: 'constant-arrival-rate',
-      rate: '100',
+      rate: targetRps,
       timeUnit: '1s',
-      duration: '120s',
+      duration,
       preAllocatedVUs: preAllocatedVus,
       maxVUs: maxVus,
     },

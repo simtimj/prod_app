@@ -35,8 +35,18 @@ TARGET_RPS=<n> DURATION=<window> npm run perf:get-board
 
 ### Create Task (/tasks/upsert)
 - Low-rate validation succeeds after auth/token flow fixes.
-- High-rate (100 RPS class) currently degrades heavily and is considered unoptimized ceiling.
-- Action item: capture exact 100 RPS create-task metrics here when rerun.
+
+100 RPS run (2 minutes)
+- Actual RPS: 62.62
+- Total requests: 9394
+- Successful requests: 7659
+- Failed requests: 1735 (18.46%)
+- Average response time: 20.66 s
+- p95 response time: 59.00 s
+- p99 response time: 60.00 s
+- Dropped iterations: 2605
+- Notable app errors: repeated `status=500 body=Internal Server Error` from `/tasks/upsert`.
+- Interpretation: hard saturation with timeout-ceiling behavior and backend 500s at this target.
 
 ## Resume Bullet Drafts
 
@@ -54,10 +64,12 @@ Technical bullets (implementation-focused)
 Built a production-oriented performance testing workflow for a task management stack (Next.js frontend, FastAPI backend, Supabase data layer) using k6. Created reproducible read/write API benchmarks, captured baseline throughput and latency at multiple load tiers, and surfaced clear saturation behavior under higher concurrency. Used these findings to prioritize backend optimization work (worker concurrency, auth caching, and query/index tuning) with measurable before-and-after targets.
 
 ## Next Data To Add
-- Exact create-task metrics at 10 RPS and 100 RPS over 120 seconds.
+- Exact create-task metrics at 10 RPS over 120 seconds.
 - Post-optimization reruns at 50 RPS and 100 RPS.
 - Any ALB/DB metrics that correlate with timeout behavior.
 
 ## Optimization Log
 - 2026-09-04: Added tasks read index migration `supabase/migrations/20260904_add_tasks_read_index.sql` to support `/tasks` query pattern (`user_id`, `archived`, `position`, `created_at`).
 - 2026-09-04: Optimized `POST /tasks/upsert` in `backend/main.py` to insert-first, then resolve/update only on unique-key conflict, reducing typical DB round trips for create-heavy load tests.
+- 2026-09-07: Made backend gunicorn runtime tuning env-driven in `backend/entrypoint.sh` (`GUNICORN_TIMEOUT`, `GUNICORN_GRACEFUL_TIMEOUT`, `GUNICORN_KEEP_ALIVE`, optional max-requests controls).
+- 2026-09-07: Increased image health check startup grace (`backend/Dockerfile` start-period 60s) and added backend scaling runbook `docs/backend-100-to-1000-rps-runbook.md`.
