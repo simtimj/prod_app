@@ -630,7 +630,8 @@ async def log_task_route_requests(request: Request, call_next):
 
 
 @app.get("/health", response_model=HealthResponse)
-def health_check() -> HealthResponse:
+async def health_check() -> HealthResponse:
+    # async so this doesn't queue behind sync /tasks endpoints in the shared thread pool
     return HealthResponse(status="ok", service="task-api", utcTime=now_iso())
 
 
