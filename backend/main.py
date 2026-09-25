@@ -20,6 +20,7 @@ import httpx
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 from pydantic import BaseModel, Field, ValidationError
 from supabase import Client, create_client
+from supabase_auth.errors import AuthRetryableError
 
 SERVICE_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SERVICE_DIR.parent
@@ -45,6 +46,8 @@ _recent_parse_by_client: dict[str, float] = {}
 _recent_mock_parse_by_client: dict[str, float] = {}
 AUTH_CACHE_MAX_TTL_SECONDS = int(os.getenv("AUTH_CACHE_MAX_TTL_SECONDS", "15"))
 AUTH_CACHE_MAX_ENTRIES = int(os.getenv("AUTH_CACHE_MAX_ENTRIES", "5000"))
+AUTH_GET_USER_MAX_RETRIES = int(os.getenv("AUTH_GET_USER_MAX_RETRIES", "2"))
+AUTH_GET_USER_RETRY_BASE_SECONDS = float(os.getenv("AUTH_GET_USER_RETRY_BASE_SECONDS", "0.2"))
 PARSE_CLIENT_TRACK_MAX_ENTRIES = int(os.getenv("PARSE_CLIENT_TRACK_MAX_ENTRIES", "20000"))
 _supabase_admin_client: Optional[Client] = None
 _supabase_admin_client_lock = threading.Lock()
@@ -472,12 +475,28 @@ def get_current_user_id(authorization: Optional[str]) -> str:
 
     client = get_supabase_admin()
 
-    try:
-        result = client.auth.get_user(jwt=token)
-    except Exception as exc:
-        invalidate_token_cache(token)
-        logger.warning("Supabase auth.get_user failed: %s: %s", exc.__class__.__name__, exc)
-        raise HTTPException(status_code=401, detail="Invalid auth token.") from exc
+    result = None
+    attempts = max(1, AUTH_GET_USER_MAX_RETRIES + 1)
+    for attempt in range(attempts):
+        try:
+            result = client.auth.get_user(jwt=token)
+            break
+        except AuthRetryableError as exc:
+            is_last_attempt = attempt >= attempts - 1
+            logger.warning(
+                "Supabase auth.get_user retryable failure (%s/%s): %s",
+                attempt + 1,
+                attempts,
+                exc,
+            )
+            if is_last_attempt:
+                # transient timeout, not a bad token; keep any cached entry intact for next request
+                raise HTTPException(status_code=503, detail="Auth service temporarily unavailable.") from exc
+            time.sleep(AUTH_GET_USER_RETRY_BASE_SECONDS * (2**attempt))
+        except Exception as exc:
+            invalidate_token_cache(token)
+            logger.warning("Supabase auth.get_user failed: %s: %s", exc.__class__.__name__, exc)
+            raise HTTPException(status_code=401, detail="Invalid auth token.") from exc
 
     user = getattr(result, "user", None)
     if user is None and isinstance(result, dict):
