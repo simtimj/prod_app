@@ -476,6 +476,7 @@ def get_current_user_id(authorization: Optional[str]) -> str:
         result = client.auth.get_user(jwt=token)
     except Exception as exc:
         invalidate_token_cache(token)
+        logger.warning("Supabase auth.get_user failed: %s: %s", exc.__class__.__name__, exc)
         raise HTTPException(status_code=401, detail="Invalid auth token.") from exc
 
     user = getattr(result, "user", None)
