@@ -20,7 +20,11 @@ import httpx
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 from pydantic import BaseModel, Field, ValidationError
 from supabase import Client, create_client
-from supabase_auth.errors import AuthRetryableError
+
+try:
+    from supabase_auth.errors import AuthRetryableError  # supabase-py >= ~2.10
+except ImportError:
+    from gotrue.errors import AuthRetryableError  # supabase-py < ~2.10
 
 SERVICE_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SERVICE_DIR.parent
