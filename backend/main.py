@@ -471,15 +471,25 @@ def prune_recent_client_map(
         recent_by_client.pop(key, None)
 
 
-def get_current_user_id(authorization: Optional[str]) -> str:
+def get_current_user_id(
+    authorization: Optional[str],
+    request: Optional[Request] = None,
+) -> str:
     token = extract_bearer_token(authorization)
     cached_user_id = get_cached_user_id_for_token(token)
+    task_read_timing = getattr(request.state, "task_read_timing", None) if request else None
     if cached_user_id:
+        if task_read_timing is not None:
+            task_read_timing["authCache"] = "hit"
+            task_read_timing["authValidationMs"] = 0.0
         return cached_user_id
 
+    if task_read_timing is not None:
+        task_read_timing["authCache"] = "miss"
     client = get_supabase_admin()
 
     result = None
+    auth_started = time.perf_counter()
     attempts = max(1, AUTH_GET_USER_MAX_RETRIES + 1)
     for attempt in range(attempts):
         try:
@@ -494,13 +504,20 @@ def get_current_user_id(authorization: Optional[str]) -> str:
                 exc,
             )
             if is_last_attempt:
+                if task_read_timing is not None:
+                    task_read_timing["authValidationMs"] = (time.perf_counter() - auth_started) * 1000
                 # transient timeout, not a bad token; keep any cached entry intact for next request
                 raise HTTPException(status_code=503, detail="Auth service temporarily unavailable.") from exc
             time.sleep(AUTH_GET_USER_RETRY_BASE_SECONDS * (2**attempt))
         except Exception as exc:
             invalidate_token_cache(token)
+            if task_read_timing is not None:
+                task_read_timing["authValidationMs"] = (time.perf_counter() - auth_started) * 1000
             logger.warning("Supabase auth.get_user failed: %s: %s", exc.__class__.__name__, exc)
             raise HTTPException(status_code=401, detail="Invalid auth token.") from exc
+
+    if task_read_timing is not None:
+        task_read_timing["authValidationMs"] = (time.perf_counter() - auth_started) * 1000
 
     user = getattr(result, "user", None)
     if user is None and isinstance(result, dict):
@@ -638,16 +655,40 @@ async def log_task_route_requests(request: Request, call_next):
     should_log = request.url.path.startswith("/tasks")
     start_ms = time.perf_counter() if should_log else 0.0
 
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        if should_log:
+            elapsed_ms = (time.perf_counter() - start_ms) * 1000
+            task_read_timing = getattr(request.state, "task_read_timing", {})
+            timing_fields = " ".join(
+                f"{key}={value:.2f}" if isinstance(value, (int, float)) else f"{key}={value}"
+                for key, value in task_read_timing.items()
+            )
+            logger.exception(
+                "request method=%s path=%s status=exception durationMs=%.2f errorType=%s %s",
+                request.method,
+                request.url.path,
+                elapsed_ms,
+                exc.__class__.__name__,
+                timing_fields,
+            )
+        raise
 
     if should_log:
         elapsed_ms = (time.perf_counter() - start_ms) * 1000
+        task_read_timing = getattr(request.state, "task_read_timing", {})
+        timing_fields = " ".join(
+            f"{key}={value:.2f}" if isinstance(value, (int, float)) else f"{key}={value}"
+            for key, value in task_read_timing.items()
+        )
         logger.info(
-            "request method=%s path=%s status=%s durationMs=%.2f",
+            "request method=%s path=%s status=%s durationMs=%.2f %s",
             request.method,
             request.url.path,
             response.status_code,
             elapsed_ms,
+            timing_fields,
         )
 
     return response
@@ -661,12 +702,24 @@ async def health_check() -> HealthResponse:
 
 @app.get("/tasks", response_model=TaskListResponse)
 def list_tasks(
+    request: Request,
     includeArchived: bool = Query(default=True),
     authorization: Optional[str] = Header(default=None),
 ) -> TaskListResponse:
-    user_id = get_current_user_id(authorization)
-    client = get_supabase_admin()
+    task_read_timing: dict[str, Any] = {}
+    request.state.task_read_timing = task_read_timing
 
+    stage_started = time.perf_counter()
+    try:
+        user_id = get_current_user_id(authorization, request=request)
+    finally:
+        task_read_timing["authMs"] = (time.perf_counter() - stage_started) * 1000
+
+    stage_started = time.perf_counter()
+    client = get_supabase_admin()
+    task_read_timing["supabaseClientMs"] = (time.perf_counter() - stage_started) * 1000
+
+    stage_started = time.perf_counter()
     query = (
         client.table("tasks")
         .select(TASK_SELECT_COLUMNS)
@@ -678,9 +731,15 @@ def list_tasks(
 
     if not includeArchived:
         query = query.eq("archived", False)
+    task_read_timing["queryBuildMs"] = (time.perf_counter() - stage_started) * 1000
 
-    result = query.execute()
+    stage_started = time.perf_counter()
+    try:
+        result = query.execute()
+    finally:
+        task_read_timing["supabaseExecuteMs"] = (time.perf_counter() - stage_started) * 1000
     rows = result.data or []
+    task_read_timing["rows"] = len(rows)
     return TaskListResponse(tasks=rows)
 
 
