@@ -723,6 +723,7 @@ def list_tasks(
     try:
         task_read_timing: dict[str, Any] = {}
         request.state.task_read_timing = task_read_timing
+        task_read_timing["pid"] = os.getpid()
         task_read_timing["processInFlight"] = requests_in_flight
         task_read_timing["processInFlightPeak"] = requests_in_flight_peak
 
