@@ -26,6 +26,31 @@ operational docs (see
 | 250 | 249.72 | 99.92% | 159.01ms | 577.18ms | ✅ Pass | Fixed (see below) |
 | 500 | 492.55 | 98.48% | 2.61s | 7.01s | ❌ Fail (latency) | Shared-compute DB tier variance |
 | 500 | 499.22 | 99.91% | 182.67ms | 551.84ms | ✅ Pass | Fixed (Supabase Large tier) |
+| 500 | 399.89 reported overall | 99.895% | 171.53ms | 326.42ms | ✅ Terminal thresholds | Latest run; rate basis needs reconciliation |
+
+### Latest Create Task 500-RPS run
+
+The terminal output for the run launched with
+`TARGET_RPS=500 DURATION=120s PREALLOCATED_VUS=1500 MAX_VUS=8000` reported:
+
+- 59,985 HTTP requests and 63 failed HTTP requests (0.10% failure; 99.895% success).
+- p95 `171.53ms` and p99 `326.42ms`, both below the configured `300ms`/`700ms` limits.
+- Terminal thresholds passed and the shell reported exit code `0`.
+- Maximum request duration was approximately `60s`, indicating a small number of extreme
+  outliers despite the good p95/p99.
+
+There is a rate-accounting discrepancy to resolve before claiming that 500 RPS was sustained:
+the terminal's `http_reqs.rate` was `399.887/s`, while 59,985 requests over the configured
+120-second arrival phase is about `499.875/s`. The former is approximately 59,985 / 150 seconds,
+suggesting the summary rate may include a 30-second graceful-drain period or otherwise use a
+different elapsed-time denominator. Verify k6's actual scenario start/stop and summary duration
+before using a throughput claim. Safe current statement: the API passed latency/error thresholds
+in a 500-RPS-target, 120-second k6 run; do not yet state "sustained 500 RPS" without reconciling
+the rate basis.
+
+The archived JSON threshold booleans have previously disagreed with the terminal threshold block
+and numeric values. Retain the terminal output plus the raw run summary, and treat that discrepancy
+as an instrumentation/reporting issue rather than silently selecting the more favorable result.
 
 ## Get-board 500 RPS investigation (unresolved)
 
@@ -256,6 +281,17 @@ to `120`, a 500-RPS Create Task run passed: actual rate `499.22 RPS`, p95 `182.6
 changes and lack of a controlled single-variable experiment mean it is not definitive causal
 proof. The separate Get-board read-path issue remains unresolved as documented above.
 
+### GET /tasks concurrency diagnostics added
+
+To distinguish Supabase request time from authentication and concurrent synchronous handler load,
+`GET /tasks` now records `authMs`, `authCache`, `authValidationMs`, `supabaseClientMs`,
+`queryBuildMs`, `supabaseExecuteMs`, row count, process ID, and in-flight request counters in its
+request log. These timings must be present in the deployed ECS image before CloudWatch can show
+them. The in-flight and peak counters are process-local (Gunicorn worker-local), not ECS-service
+totals. The peak value is captured when a request enters the handler, so to observe a later peak,
+inspect subsequent request logs from that same PID. This is diagnostic instrumentation, not yet
+evidence that a particular stage is the bottleneck.
+
 ## How to explain this in an interview
 
 A concise way to narrate this project's performance work:
@@ -268,6 +304,12 @@ A concise way to narrate this project's performance work:
 > write path passed at 500 RPS after the final configuration changes. A separate get-board read
 > test at 500 RPS currently sustains about 396 RPS with high tail latency; I am correlating ALB,
 > FastAPI, ECS, and Supabase evidence before claiming a root cause or changing capacity."
+
+Resume-safe Create Task bullet based on the latest terminal evidence:
+
+> Load-tested a FastAPI task-creation API with k6 at a 500-RPS target for 120 seconds, recording
+> 99.9% HTTP success with 172ms p95 and 326ms p99 latency; investigating a discrepancy between
+> the scheduled arrival rate and aggregate reported throughput before claiming sustained 500 RPS.
 
 ## Reusable methodology (applies beyond this project)
 

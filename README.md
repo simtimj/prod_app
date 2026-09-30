@@ -55,6 +55,10 @@ health-check thread-pool starvation, database connection-pool sizing, shared-com
 variance) and the reasoning behind each fix, see
 [docs/system-design-decisions-and-troubleshooting.md](docs/system-design-decisions-and-troubleshooting.md).
 
+For the AI task-parsing design, mock-versus-OpenAI test strategy, prompt corpus, and interview
+discussion guide, see
+[docs/ai-task-parsing-interview-guide.md](docs/ai-task-parsing-interview-guide.md).
+
 The frontend container health endpoint is `/healthz` so it does not conflict with `/api/*` listener rules.
 
 Run the parser service locally:
