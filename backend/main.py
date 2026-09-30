@@ -53,6 +53,9 @@ AUTH_CACHE_MAX_ENTRIES = int(os.getenv("AUTH_CACHE_MAX_ENTRIES", "5000"))
 AUTH_GET_USER_MAX_RETRIES = int(os.getenv("AUTH_GET_USER_MAX_RETRIES", "2"))
 AUTH_GET_USER_RETRY_BASE_SECONDS = float(os.getenv("AUTH_GET_USER_RETRY_BASE_SECONDS", "0.2"))
 PARSE_CLIENT_TRACK_MAX_ENTRIES = int(os.getenv("PARSE_CLIENT_TRACK_MAX_ENTRIES", "20000"))
+TASK_REQUESTS_IN_FLIGHT = 0
+TASK_REQUESTS_IN_FLIGHT_LOCK = threading.Lock()
+TASK_REQUESTS_IN_FLIGHT_MAX = 0
 _supabase_admin_client: Optional[Client] = None
 _supabase_admin_client_lock = threading.Lock()
 _openai_client: Optional[OpenAI] = None
@@ -706,41 +709,58 @@ def list_tasks(
     includeArchived: bool = Query(default=True),
     authorization: Optional[str] = Header(default=None),
 ) -> TaskListResponse:
-    task_read_timing: dict[str, Any] = {}
-    request.state.task_read_timing = task_read_timing
+    global TASK_REQUESTS_IN_FLIGHT, TASK_REQUESTS_IN_FLIGHT_MAX
 
-    stage_started = time.perf_counter()
+    with TASK_REQUESTS_IN_FLIGHT_LOCK:
+        TASK_REQUESTS_IN_FLIGHT += 1
+        TASK_REQUESTS_IN_FLIGHT_MAX = max(
+            TASK_REQUESTS_IN_FLIGHT_MAX,
+            TASK_REQUESTS_IN_FLIGHT,
+        )
+        requests_in_flight = TASK_REQUESTS_IN_FLIGHT
+        requests_in_flight_peak = TASK_REQUESTS_IN_FLIGHT_MAX
+
     try:
-        user_id = get_current_user_id(authorization, request=request)
+        task_read_timing: dict[str, Any] = {}
+        request.state.task_read_timing = task_read_timing
+        task_read_timing["processInFlight"] = requests_in_flight
+        task_read_timing["processInFlightPeak"] = requests_in_flight_peak
+
+        stage_started = time.perf_counter()
+        try:
+            user_id = get_current_user_id(authorization, request=request)
+        finally:
+            task_read_timing["authMs"] = (time.perf_counter() - stage_started) * 1000
+
+        stage_started = time.perf_counter()
+        client = get_supabase_admin()
+        task_read_timing["supabaseClientMs"] = (time.perf_counter() - stage_started) * 1000
+
+        stage_started = time.perf_counter()
+        query = (
+            client.table("tasks")
+            .select(TASK_SELECT_COLUMNS)
+            .eq("user_id", user_id)
+            .order("archived", desc=False)
+            .order("position", desc=False)
+            .order("created_at", desc=False)
+        )
+
+        if not includeArchived:
+            query = query.eq("archived", False)
+        task_read_timing["queryBuildMs"] = (time.perf_counter() - stage_started) * 1000
+
+        stage_started = time.perf_counter()
+        try:
+            result = query.execute()
+        finally:
+            task_read_timing["supabaseExecuteMs"] = (time.perf_counter() - stage_started) * 1000
+        rows = result.data or []
+        task_read_timing["rows"] = len(rows)
+        return TaskListResponse(tasks=rows)
     finally:
-        task_read_timing["authMs"] = (time.perf_counter() - stage_started) * 1000
-
-    stage_started = time.perf_counter()
-    client = get_supabase_admin()
-    task_read_timing["supabaseClientMs"] = (time.perf_counter() - stage_started) * 1000
-
-    stage_started = time.perf_counter()
-    query = (
-        client.table("tasks")
-        .select(TASK_SELECT_COLUMNS)
-        .eq("user_id", user_id)
-        .order("archived", desc=False)
-        .order("position", desc=False)
-        .order("created_at", desc=False)
-    )
-
-    if not includeArchived:
-        query = query.eq("archived", False)
-    task_read_timing["queryBuildMs"] = (time.perf_counter() - stage_started) * 1000
-
-    stage_started = time.perf_counter()
-    try:
-        result = query.execute()
-    finally:
-        task_read_timing["supabaseExecuteMs"] = (time.perf_counter() - stage_started) * 1000
-    rows = result.data or []
-    task_read_timing["rows"] = len(rows)
-    return TaskListResponse(tasks=rows)
+        with TASK_REQUESTS_IN_FLIGHT_LOCK:
+            TASK_REQUESTS_IN_FLIGHT -= 1
 
 
 @app.get("/lists", response_model=SavedListsResponse)

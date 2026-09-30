@@ -48,6 +48,13 @@ In local development, requests to `/api/parse-task` are forwarded to Python Fast
 
 In ECS/Fargate, prefer ALB path-based routing so `/api/*` goes directly to the backend service and the frontend image stays environment-agnostic.
 
+## System Design Decisions & Troubleshooting
+
+For a record of the real production/performance issues found during load testing (auth timeouts,
+health-check thread-pool starvation, database connection-pool sizing, shared-compute tier
+variance) and the reasoning behind each fix, see
+[docs/system-design-decisions-and-troubleshooting.md](docs/system-design-decisions-and-troubleshooting.md).
+
 The frontend container health endpoint is `/healthz` so it does not conflict with `/api/*` listener rules.
 
 Run the parser service locally:

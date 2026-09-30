@@ -132,8 +132,15 @@ echo "Preflight connectivity check passed (HTTP ${preflight_http_code})"
 mkdir -p "${RESULTS_DIR}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 SUMMARY_FILE="${RESULTS_DIR}/create-task-summary-${TIMESTAMP}.json"
+LIVE_JSON_FILE="${RESULTS_DIR}/create-task-live-${TIMESTAMP}.ndjson"
+LIVE_STATUS_INTERVAL_SECONDS="${LIVE_STATUS_INTERVAL_SECONDS:-3}"
 
 echo "Running create-task load test against ${CREATE_TASK_BASE_URL}"
+
+python3 "${SCRIPT_DIR}/live_status.py" "${LIVE_JSON_FILE}" \
+  --interval "${LIVE_STATUS_INTERVAL_SECONDS}" \
+  --label "TARGET_RPS=${TARGET_RPS}" &
+LIVE_STATUS_PID=$!
 
 set +e
 k6 run \
@@ -144,9 +151,13 @@ k6 run \
   -e MAX_VUS="${MAX_VUS}" \
   -e DURATION="${DURATION}" \
   --summary-export "${SUMMARY_FILE}" \
+  --out "json=${LIVE_JSON_FILE}" \
   "${K6_SCRIPT}" "$@"
 run_exit_code=$?
 set -e
+
+kill "${LIVE_STATUS_PID}" 2>/dev/null || true
+wait "${LIVE_STATUS_PID}" 2>/dev/null || true
 
 if [[ ${run_exit_code} -ne 0 ]]; then
   echo ""

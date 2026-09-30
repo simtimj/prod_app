@@ -13,6 +13,11 @@
 # testing
 /coverage
 
+# Generated k6 outputs (consolidated history is kept separately)
+/performance/results/*-summary-*.json
+/performance/results/*-live-*.ndjson
+!/performance/results/performance-history.json
+
 # next.js
 /.next/
 /out/
