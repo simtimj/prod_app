@@ -17,6 +17,7 @@
     "perf:get-board:1k": "TARGET_RPS=1000 PREALLOCATED_VUS=200 MAX_VUS=2000 DURATION=30s bash ./performance/scripts/run-get-board.sh",
     "perf:parse-ai": "bash ./performance/scripts/run-parse-ai.sh",
     "perf:parse-ai:1k": "TARGET_RPS=1000 PREALLOCATED_VUS=200 MAX_VUS=2000 DURATION=30s bash ./performance/scripts/run-parse-ai.sh",
+    "perf:parse-ai:integration": "bash ./performance/scripts/run-parse-ai-integration.sh",
     "perf:cleanup": "python3 ./performance/scripts/cleanup_test_data.py",
     "build": "next build",
     "start": "next start",

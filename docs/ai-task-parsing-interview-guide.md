@@ -46,6 +46,12 @@ In [performance/k6/parse-ai.js](../performance/k6/parse-ai.js), k6 loads this ar
 
 This is a test corpus, not a set of expected outputs. The k6 checks require a successful status/JSON response and a draft title; they do not assert that every inferred date/time exactly matches a hand-authored expected answer.
 
+For a deterministic, quality-oriented real-provider sample, a separate 30-case corpus is stored in
+[performance/data/parse-ai-integration-cases.json](../performance/data/parse-ai-integration-cases.json).
+Unlike the random capacity-test corpus, these cases run once each in a fixed order and include
+expected date/time fields where the prompt is explicit. The reference date defaults to
+`2026-09-29` and timezone to `America/Los_Angeles` so relative-date expectations are reproducible.
+
 ## Performance test configuration
 
 The launcher is [performance/scripts/run-parse-ai.sh](../performance/scripts/run-parse-ai.sh). Defaults:
@@ -59,11 +65,35 @@ The launcher is [performance/scripts/run-parse-ai.sh](../performance/scripts/run
 
 The runner refuses `TARGET_RPS > 50` against `/parse-task` (the real OpenAI-backed route) unless `ALLOW_REAL_PARSE_HIGH_RPS=1` is explicitly set. This is a guard against accidentally sending high-rate traffic to a paid, externally rate-limited provider. Do not use that override as a routine stress-test setting.
 
+### Controlled real-OpenAI integration run
+
+Run this separately from the mock capacity suite:
+
+```bash
+npm run perf:parse-ai:integration
+```
+
+This command calls the real `POST /parse-task` route exactly 30 times, sequentially, with a
+3-second delay between starts. It does not use Supabase user auth, does not seed data, and does not
+run a 100+ RPS OpenAI stress test. The spacing is deliberately above the route's 1.8-second
+per-client limiter. The case corpus is [performance/data/parse-ai-integration-cases.json](../performance/data/parse-ai-integration-cases.json).
+
+The k6 test records HTTP failure rate, end-to-end latency, response-schema validity, and whether
+the specified expected due-date/time fields match. It checks for a nonempty title and correctly
+typed nullable fields but does not assert exact title wording or description quality. A failure
+prints the case ID and status, without dumping credentials. The summary is written to a timestamped
+`parse-ai-integration-summary-*.json` under `performance/results/`.
+
+The run makes real OpenAI calls and may incur usage charges. Confirm the deployed backend has a
+valid provider key and that the OpenAI project has sufficient quota/budget. Check OpenAI usage
+afterward. A green result establishes behavior for this 30-case sample under this low sequential
+rate; it does not prove broad semantic accuracy or high-throughput provider capacity.
+
 ### Recommended testing layers
 
 1. **Functional correctness:** test representative prompts against `/parse-task` at low request volume. Verify the returned draft fields and edge cases manually or with expected-output tests.
 2. **Application capacity:** load-test `/parse-task/mock` in stages. This measures FastAPI/ALB/local mock behavior without OpenAI dependency, provider quotas, or per-call model cost.
-3. **Real-provider integration and resilience:** exercise `/parse-task` at a small, controlled rate within the OpenAI account's approved request/token limits and budget. Measure end-to-end latency, 429/5xx/transport errors, retry outcomes, and schema-valid response rate. Use a short test and stop if provider throttling or unexpected spend appears.
+3. **Real-provider integration and resilience:** run the dedicated 30-case sequential test against `/parse-task` at one request every 3 seconds. Review case-level expected-date/time matching, schema validity, latency, HTTP/provider errors, retries, and usage/cost. This is a small integration sample, not a provider stress test.
 
 Do not describe mock-route RPS as OpenAI RPS. A resume claim should state the route/provider and tested conditions clearly.
 

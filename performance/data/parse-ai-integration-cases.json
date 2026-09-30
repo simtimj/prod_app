@@ -1,0 +1,181 @@
+[
+  {
+    "id": "invoice-tomorrow-afternoon",
+    "text": "Please, remind me to send the revised invoice tomorrow around 2 PM.",
+    "expectedDueDate": "2026-09-30",
+    "expectedDueTime": "14:00"
+  },
+  {
+    "id": "prescription-today-morning",
+    "text": "pick up my prescription at 09:15 today, don't forget",
+    "expectedDueDate": "2026-09-29",
+    "expectedDueTime": "09:15"
+  },
+  {
+    "id": "conference-room-iso-date",
+    "text": "Book the conference room for 2026-10-03 at 14:30.",
+    "expectedDueDate": "2026-10-03",
+    "expectedDueTime": "14:30"
+  },
+  {
+    "id": "laundry-no-date",
+    "text": "I really need to do laundry when I get a chance.",
+    "expectedDueDate": null,
+    "expectedDueTime": null
+  },
+  {
+    "id": "dentist-friday",
+    "text": "Call the dentist this Friday to confirm the cleaning appointment.",
+    "expectedDueDate": "2026-10-02",
+    "expectedDueTime": null
+  },
+  {
+    "id": "report-by-date-time",
+    "text": "Submit the Q3 report by 2026-10-05 16:45",
+    "expectedDueDate": "2026-10-05",
+    "expectedDueTime": "16:45"
+  },
+  {
+    "id": "mom-call-no-date",
+    "text": "Call Mom and ask how the trip went.",
+    "expectedDueDate": null,
+    "expectedDueTime": null
+  },
+  {
+    "id": "school-pickup-330pm",
+    "text": "Pick up the kids from school at 3:30pm tomorrow",
+    "expectedDueDate": "2026-09-30",
+    "expectedDueTime": "15:30"
+  },
+  {
+    "id": "rent-next-month",
+    "text": "Pay rent on 2026-10-01, preferably before noon.",
+    "expectedDueDate": "2026-10-01",
+    "expectedDueTime": null
+  },
+  {
+    "id": "standup-8am",
+    "text": "team standup 8 AM on 2026-10-06",
+    "expectedDueDate": "2026-10-06",
+    "expectedDueTime": "08:00"
+  },
+  {
+    "id": "car-registration-november",
+    "text": "Renew the car registration on November 12, 2026",
+    "expectedDueDate": "2026-11-12",
+    "expectedDueTime": null
+  },
+  {
+    "id": "email-after-lunch",
+    "text": "Email Jordan the revised mockups after lunch tomorrow.",
+    "expectedDueDate": "2026-09-30",
+    "expectedDueTime": null
+  },
+  {
+    "id": "backup-tonight",
+    "text": "Back up my laptop tonight at 8:00 PM",
+    "expectedDueDate": "2026-09-29",
+    "expectedDueTime": "20:00"
+  },
+  {
+    "id": "groceries-saturday",
+    "text": "Sat 2026-10-03 - grab groceries and coffee filters",
+    "expectedDueDate": "2026-10-03",
+    "expectedDueTime": null
+  },
+  {
+    "id": "dentist-followup-next-week",
+    "text": "Need to book a dentist follow-up sometime next week, no exact time yet.",
+    "expectedDueTime": null
+  },
+  {
+    "id": "client-call-1115",
+    "text": "Set up a call with the client for 2026-10-07 at 11:15 am.",
+    "expectedDueDate": "2026-10-07",
+    "expectedDueTime": "11:15"
+  },
+  {
+    "id": "plants-no-date",
+    "text": "water the plants + check the basil pls",
+    "expectedDueDate": null,
+    "expectedDueTime": null
+  },
+  {
+    "id": "insurance-october-ninth",
+    "text": "Pay the insurance premium on October 9, 2026 at 10am",
+    "expectedDueDate": "2026-10-09",
+    "expectedDueTime": "10:00"
+  },
+  {
+    "id": "slides-before-meeting",
+    "text": "Finish the slides before the meeting on 2026-10-02 at 13:00",
+    "expectedDueDate": "2026-10-02",
+    "expectedDueTime": "13:00"
+  },
+  {
+    "id": "package-return-1006",
+    "text": "Return package by 10/06/2026, store closes at 17:00",
+    "expectedDueDate": "2026-10-06",
+    "expectedDueTime": "17:00"
+  },
+  {
+    "id": "read-chapter-no-date",
+    "text": "Read chapter four and write down the main points.",
+    "expectedDueDate": null,
+    "expectedDueTime": null
+  },
+  {
+    "id": "vet-next-tuesday",
+    "text": "Book the dog for a vet check next Tuesday at 9 AM",
+    "expectedDueDate": "2026-10-06",
+    "expectedDueTime": "09:00"
+  },
+  {
+    "id": "send-contract-iso",
+    "text": "send signed contract to Lee on 2026-10-08",
+    "expectedDueDate": "2026-10-08",
+    "expectedDueTime": null
+  },
+  {
+    "id": "tax-docs-december",
+    "text": "Gather tax docs on December 1, 2026 around 4:20 PM.",
+    "expectedDueDate": "2026-12-01",
+    "expectedDueTime": "16:20"
+  },
+  {
+    "id": "water-filter-0730",
+    "text": "replace water filter tomorrow @ 7:30am",
+    "expectedDueDate": "2026-09-30",
+    "expectedDueTime": "07:30"
+  },
+  {
+    "id": "project-checkin-no-date",
+    "text": "Can you remind me to check in with the design team?",
+    "expectedDueDate": null,
+    "expectedDueTime": null
+  },
+  {
+    "id": "flight-checkin-october-ten",
+    "text": "Check in for my flight October 10, 2026 at 6:05 AM",
+    "expectedDueDate": "2026-10-10",
+    "expectedDueTime": "06:05"
+  },
+  {
+    "id": "medication-2100",
+    "text": "take the evening medication at 21:00 today",
+    "expectedDueDate": "2026-09-29",
+    "expectedDueTime": "21:00"
+  },
+  {
+    "id": "draft-thank-you-october-four",
+    "text": "Draft thank-you note on 2026-10-04; keep it short and warm",
+    "expectedDueDate": "2026-10-04",
+    "expectedDueTime": null
+  },
+  {
+    "id": "clean-outbox-no-date",
+    "text": "ugh clean out my email inbox when you can",
+    "expectedDueDate": null,
+    "expectedDueTime": null
+  }
+]
