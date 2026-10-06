@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import random
 import time
 import logging
 import hashlib
@@ -931,8 +932,20 @@ def upsert_task(
     body: UpsertTaskRequest,
     authorization: Optional[str] = Header(default=None),
 ) -> OkResponse:
+    request_start = time.perf_counter()
+
+    # Sample ~1% of requests to avoid excessive logging at high RPS.
+    should_log = random.random() < 0.01
+
+    start = time.perf_counter()
     user_id = get_current_user_id(authorization)
+    auth_ms = (time.perf_counter() - start) * 1000
+
+    start = time.perf_counter()
     client = get_supabase_admin()
+    client_ms = (time.perf_counter() - start) * 1000
+
+    start = time.perf_counter()
 
     validate_task_payload(body.task)
     task = body.task
@@ -960,12 +973,50 @@ def upsert_task(
         "updated_at": task.updated_at or current_time,
     }
 
+    payload_ms = (time.perf_counter() - start) * 1000
+
     try:
+        start = time.perf_counter()
         client.table("tasks").insert(payload).execute()
+
+        insert_ms = (time.perf_counter() - start) * 1000
+
+        total_ms = (time.perf_counter() - request_start) * 1000
+
+        if should_log:
+            logger.info(
+                "TASK_UPSERT_TIMING success "
+                "total_ms=%.2f auth_ms=%.2f client_ms=%.2f "
+                "payload_ms=%.2f supabase_insert_ms=%.2f",
+                total_ms,
+                auth_ms,
+                client_ms,
+                payload_ms,
+                insert_ms,
+            )
+
         return OkResponse()
     except Exception as insert_exc:
+        insert_ms = (time.perf_counter() - start) * 1000
+
         if not is_unique_constraint_violation(insert_exc):
+            total_ms = (time.perf_counter() - request_start) * 1000
+
+            if should_log:
+                logger.info(
+                    "TASK_UPSERT_TIMING insert_error "
+                    "total_ms=%.2f auth_ms=%.2f client_ms=%.2f "
+                    "payload_ms=%.2f supabase_insert_ms=%.2f",
+                    total_ms,
+                    auth_ms,
+                    client_ms,
+                    payload_ms,
+                    insert_ms,
+                )
+
             raise
+
+    start = time.perf_counter()
 
     existing_task_result = (
         client.table("tasks")
@@ -974,20 +1025,58 @@ def upsert_task(
         .limit(1)
         .execute()
     )
+
+    conflict_select_ms = (time.perf_counter() - start) * 1000
     existing_task_row = (existing_task_result.data or [None])[0]
 
     if not existing_task_row:
         raise HTTPException(status_code=409, detail="Task id conflict. Please retry.")
 
-    existing_owner = str(existing_task_row.get("user_id")) if isinstance(existing_task_row, dict) else None
+    existing_owner = (
+        str(existing_task_row.get("user_id"))
+        if isinstance(existing_task_row, dict)
+        else None
+    )
     if existing_owner != user_id:
-        raise HTTPException(status_code=403, detail="Task id already exists for another user.")
+        raise HTTPException(
+            status_code=403,
+            detail="Task id already exists for another user.",
+        )
 
-    persisted_created_at = existing_task_row.get("created_at") if isinstance(existing_task_row, dict) else None
+    persisted_created_at = (
+        existing_task_row.get("created_at")
+        if isinstance(existing_task_row, dict)
+        else None
+    )
     if persisted_created_at:
         payload["created_at"] = persisted_created_at
 
-    client.table("tasks").update(payload).eq("id", task.id).eq("user_id", user_id).execute()
+    start = time.perf_counter()
+
+    client.table("tasks").update(payload).eq(
+        "id", task.id
+    ).eq(
+        "user_id", user_id
+    ).execute()
+
+    update_ms = (time.perf_counter() - start) * 1000
+    total_ms = (time.perf_counter() - request_start) * 1000
+
+    if should_log:
+        logger.info(
+            "TASK_UPSERT_TIMING conflict_update "
+            "total_ms=%.2f auth_ms=%.2f client_ms=%.2f "
+            "payload_ms=%.2f failed_insert_ms=%.2f "
+            "conflict_select_ms=%.2f update_ms=%.2f",
+            total_ms,
+            auth_ms,
+            client_ms,
+            payload_ms,
+            insert_ms,
+            conflict_select_ms,
+            update_ms,
+        )
+
     return OkResponse()
 
 
