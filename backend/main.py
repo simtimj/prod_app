@@ -355,7 +355,25 @@ def get_supabase_admin() -> Client:
 
     with _supabase_admin_client_lock:
         if _supabase_admin_client is None:
-            _supabase_admin_client = create_client(supabase_url, service_role_key)
+            supabase_client = create_client(supabase_url, service_role_key)
+            postgrest_client = supabase_client.postgrest
+            previous_http_client = postgrest_client.session
+            postgrest_client.session = httpx.Client(
+                base_url=previous_http_client.base_url,
+                headers=previous_http_client.headers,
+                timeout=previous_http_client.timeout,
+                verify=True,
+                follow_redirects=previous_http_client.follow_redirects,
+                max_redirects=previous_http_client.max_redirects,
+                trust_env=previous_http_client.trust_env,
+                limits=httpx.Limits(
+                    max_connections=100,
+                    max_keepalive_connections=40,
+                    keepalive_expiry=5.0,
+                ),
+            )
+            previous_http_client.close()
+            _supabase_admin_client = supabase_client
 
     return _supabase_admin_client
 
