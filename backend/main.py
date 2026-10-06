@@ -368,7 +368,7 @@ def get_supabase_admin() -> Client:
                 trust_env=previous_http_client.trust_env,
                 limits=httpx.Limits(
                     max_connections=100,
-                    max_keepalive_connections=40,
+                    max_keepalive_connections=80,
                     keepalive_expiry=5.0,
                 ),
             )
