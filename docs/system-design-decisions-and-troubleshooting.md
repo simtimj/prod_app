@@ -52,7 +52,11 @@ The archived JSON threshold booleans have previously disagreed with the terminal
 and numeric values. Retain the terminal output plus the raw run summary, and treat that discrepancy
 as an instrumentation/reporting issue rather than silently selecting the more favorable result.
 
-## Get-board 500 RPS investigation (unresolved)
+## Get-board 500 RPS investigation (unresolved at the time; resolved in October 2026)
+
+> Update: the get-board read ceiling was later traced to the backend's explicit PostgREST column
+> list. See [October 2026: reaching 1,000 RPS](#october-2026-reaching-1000-rps-on-create-task-and-get-board).
+> The notes below are the original September investigation, kept as written.
 
 ### k6 evidence
 
@@ -292,7 +296,136 @@ totals. The peak value is captured when a request enters the handler, so to obse
 inspect subsequent request logs from that same PID. This is diagnostic instrumentation, not yet
 evidence that a particular stage is the bottleneck.
 
+## October 2026: reaching 1,000 RPS on create-task and get-board
+
+### Final validated results (k6, constant-arrival-rate, 120s, 2,000 max VUs)
+
+| Endpoint | Supabase compute | Actual RPS | p95 | p99 | Failed requests | Result |
+|---|---|---:|---:|---:|---|---|
+| POST /tasks/upsert | Large (2 vCPU) | 906 | 3.06s | 10.61s | 3 of 109,245 | Fail: saturated (baseline) |
+| POST /tasks/upsert | Large, +HTTPX keep-alive 80 | 934 | 2.38s | 4.17s | 2 of 113,659 | Fail |
+| POST /tasks/upsert | Large, +3 indexes dropped | 965 | 2.49s | not recorded | 57 (internet outage mid-run) | Fail |
+| POST /tasks/upsert | **XL (4 vCPU)** | **994** | **182ms** | **429ms** | 3 of 119,671 | **Pass** |
+| GET /tasks | XL, before fix | about 900 | 2.45-2.93s | 3.3-3.9s | about 0 | Fail: saturated |
+| GET /tasks | XL, 500 / 600 RPS target | 499 / 597 | 160ms / 190ms | 241ms / 302ms | 0 | Pass |
+| GET /tasks | XL, 750 RPS target | about 743 | 841ms | 1.07s | about 0 | Fail |
+| GET /tasks | XL, 12 to 16 tasks, before fix | 929 | 2.2s | 2.72s | 4 of 112,378 | Fail: adding tasks did not help |
+| GET /tasks | **XL, after `select("*")` fix** | **994** | **167ms** | **539ms** | 1 of 119,427 | **Pass** |
+
+One later same-day create-task rerun on XL (back-to-back with get-board runs) measured 995 RPS but
+p95 441ms and p99 792ms, missing both thresholds. Treat the 182ms result as the best run, not a
+guaranteed steady state; I did not investigate that variance.
+
+### Create-task bottleneck: how it was isolated
+
+1. k6 showed seconds of latency with near-zero errors: requests queued, they were not rejected.
+2. Request-log `durationMs` (every request) matched k6, so the delay was inside the service.
+3. Added sampled (1%) `TASK_UPSERT_TIMING` logs. Auth was about 0.05ms (cache hits), client setup
+   and payload building about 0, and `supabase_insert_ms` was almost identical to total time. All
+   the time was inside the Supabase insert call.
+4. Middleware time vs handler time differed by tens of ms, so requests were not queuing for a
+   worker thread. ECS CPU peaked at 66% (average 18%), so the backend was not CPU-bound.
+5. Supabase API Gateway average response time (804ms) matched the backend's insert time. Supabase
+   Large CPU peaked at about 85-89%, disk IOPS peaked at 18% of the 3,000 provisioned, and the
+   PostgREST connection count was flat at 37. Disk was ruled out.
+6. HTTPX pool experiment: the pinned `supabase==2.7.4` / `postgrest==0.16.8` build its own
+   `httpx.Client` with default limits (100 connections, 20 keep-alive). I replaced that session
+   after singleton creation to test keep-alive 40, then 80. Small or no effect; not credited.
+7. Six indexes existed on `tasks`. Usage stats showed two unused and one redundant; dropping three
+   gave a small gain (934 to 965 RPS).
+8. Upgrading Supabase from Large to XL moved create-task from 965 to 994 RPS with p95 182ms: database
+   compute was the limit.
+
+### Get-board bottleneck: how it was isolated (bisecting the request path)
+
+With Supabase on XL, get-board still saturated at about 900 RPS with a median near 2s. Each step
+ruled something out:
+
+| Check | Finding |
+|---|---|
+| Latency per Gunicorn worker (PID) | Median about 1.9s on every worker, busy or idle: not a hot-worker problem |
+| Auth cache | About 99% hits (auth about 0.03ms). A cold-start burst of 1,061 misses in the first 30s was not the cause |
+| Supabase database | CPU peak 41% on XL; `EXPLAIN ANALYZE` 0.16ms index scan; `seq_scan` unchanged |
+| NAT gateways | `ErrorPortAllocation` 0, `PacketsDropCount` 0, about 2,000 active connections |
+| ECS task count | 12 to 16 tasks barely changed throughput (about 900 to 929 RPS): not per-task capacity |
+| `/tasks` without a token (401, no Supabase call) | 998 RPS, p95 100ms: ALB, uvicorn and thread pool are fine |
+| k6 direct to Supabase, `select=*` | 990 RPS, p95 140ms: Supabase handles reads |
+| Same, plus the `{}` GET body supabase-py sends | No change |
+| Same, reproducing the backend's exact request shape | Slow again (p95 1.9s) |
+| Request shape split: rotating users, profile headers | Fast |
+| Request shape split: repeated `order` parameter | Fast |
+| Request shape split: explicit 19-column select list | Slow (p95 1.71s) |
+| Same list with spaces removed | 434ms: spaces were most of it, list still slower |
+| `select=*` | About 140ms |
+
+**Root cause (measured, mechanism not identified):** `TASK_SELECT_COLUMNS` was a 19-column string
+with a space after each comma. Sent through postgrest-py 0.16.8 to Supabase's Data API, it made reads
+about 10x slower at 1,000 RPS even though the database was idle. Fix: `TASK_SELECT_COLUMNS = "*"`.
+The `TaskRow` response model still limits the API response to its declared fields. After the fix:
+994 RPS, p95 167ms, p99 539ms.
+
+**Why the plateau looked like about 2s:** with the VU cap reached, latency settles at roughly
+VU cap / throughput (2,000 / about 930 = about 2.1s). That flat 2s is a saturation signature, not a
+fixed delay, and it hid the real cause for a long time.
+
+### Caveats to state honestly
+
+- The seeded get-board users have empty boards on `GET /tasks`: the seed script writes tasks to
+  `saved_list_tasks`, but `/tasks` reads the `tasks` table. Responses were about 165 bytes. The result
+  measures auth, routing and a Data API round trip, not a full 100-task payload.
+- The create-task test uses one user, so index inserts are concentrated on one `user_id`.
+- Several changes overlapped on create-task (keep-alive 80, three indexes dropped, XL). Compute was
+  the clear driver, but the smaller effects are not isolated.
+- The same spaced column-list pattern exists for the saved-list queries behind `GET /lists`. It was not
+  measured or changed.
+- Live Supabase indexes do not match the repo migrations (some live indexes are not in any migration,
+  and `20260813` creates indexes that did not exist live). `20261006_drop_unused_tasks_indexes.sql`
+  records the three drops.
+- Confirm the ECS task count used for the final get-board run before quoting a task count.
+
+### Likely interview questions and short answers
+
+- **How did you find the bottleneck?** Instrumented per-stage timings, then bisected the request
+  path by removing one layer at a time (token-less probe, direct client calls, reproducing the exact
+  request shape) until one request feature, the select list, reproduced the slowdown.
+- **Why did adding ECS tasks not help?** The limit was shared downstream of the tasks, so more
+  workers only added more waiting requests.
+- **How do you read k6 output?** `dropped_iterations` means the arrival rate could not be sustained;
+  hitting the VU cap makes latency equal VU cap / throughput; exit code 99 means thresholds failed,
+  105 means the run was interrupted.
+- **What would you do differently?** Change one variable per run, keep all deployed versions equal
+  to the pinned requirements (a newer local venv hid differences before), and test with realistic
+  data (non-empty boards, many users).
+- **Scaling vs fixing the query?** Scaling (Supabase XL) fixed writes; a query-shape change fixed
+  reads at no extra cost. Check the cheap request-level causes before paying for capacity.
+
+### Environment notes worth remembering
+
+- Backend: FastAPI with Gunicorn and Uvicorn workers (`WEB_CONCURRENCY=8`) on ECS/Fargate tasks of
+  1 vCPU and 2 GiB. Sync handlers run on a per-process thread pool of 40 threads. `/health` is async
+  so it does not queue behind them.
+- Auth: JWT validated through Supabase Auth, with a per-process cache (default TTL 15s; the runbook
+  uses 120s). `get_user` timeouts are retried and return 503, not 401.
+- Writes: `POST /tasks/upsert` inserts first and only selects and updates on a unique-key conflict.
+- Egress goes through two NAT gateways to Supabase.
+- Tools added in the repo: `performance/k6/get-board-direct.js` (direct-to-Supabase read test with
+  `SHAPE` options and `GET_BODY`), and the sampled `TASK_UPSERT_TIMING` logging in the upsert handler.
+- Supabase compute is billed hourly; the 1,000 RPS results used XL, so scale it back down afterward.
+
+### Resume-safe claims (updated)
+
+> Load-tested a FastAPI task API (Python, ECS/Fargate, Supabase PostgreSQL) with k6 to a sustained
+> 994 RPS on writes (p95 182ms) after diagnosing a database-compute bottleneck from per-stage
+> request timings; right-sized Supabase compute and removed redundant indexes.
+
+> Reduced `GET /tasks` p95 latency from about 2.5s to 167ms at 994 RPS by bisecting the request path
+> and replacing an explicit PostgREST column list with `select=*`, validated with k6 against the
+> deployed ECS stack.
+
 ## How to explain this in an interview
+
+> Note: the paragraph below is the September narrative. For the 1,000 RPS results, use the
+> October 2026 section above.
 
 A concise way to narrate this project's performance work:
 
